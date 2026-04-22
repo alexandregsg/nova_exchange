@@ -3,7 +3,7 @@ import os
 import httpx
 from supabase import create_client, Client
 from typing import Optional
-from lib.cache import cache_get, cache_set, cache_delete
+from lib.cache import cache_get, cache_set, cache_delete, cache_clear
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -11,6 +11,16 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 AUTH_URL = f"{SUPABASE_URL}/auth/v1"
 REST_URL = f"{SUPABASE_URL}/rest/v1"
 STORAGE_URL = f"{SUPABASE_URL}/storage/v1"
+
+_http_client: httpx.Client = None
+
+
+def get_http_client() -> httpx.Client:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.Client(timeout=10.0)
+    return _http_client
+
 
 _supabase_client: Client = None
 
@@ -50,17 +60,15 @@ def _get_auth_headers(access_token: str) -> dict:
     }
 
 
-# Auth functions - still use httpx directly (not using supabase auth)
 def signup_via_rest(email: str, password: str, name: str = None, phone: str = None) -> dict:
     headers = _get_headers()
     user_data = {"email": email, "password": password}
     if name or phone:
         user_data["data"] = {"name": name or "", "phone": phone or ""}
-    response = httpx.post(
+    response = get_http_client().post(
         f"{AUTH_URL}/signup",
         json=user_data,
-        headers=headers,
-        timeout=10.0
+        headers=headers
     )
     print(f"Signup REST API response: {response.status_code} - {response.text}")
     return response.json()
@@ -68,11 +76,10 @@ def signup_via_rest(email: str, password: str, name: str = None, phone: str = No
 
 def login_via_rest(email: str, password: str) -> dict:
     headers = _get_headers()
-    response = httpx.post(
+    response = get_http_client().post(
         f"{AUTH_URL}/token?grant_type=password",
         json={"email": email, "password": password},
-        headers=headers,
-        timeout=10.0
+        headers=headers
     )
     print(f"Login REST API response: {response.status_code} - {response.text}")
     return response.json()
@@ -80,51 +87,43 @@ def login_via_rest(email: str, password: str) -> dict:
 
 def logout_via_rest(access_token: str) -> dict:
     headers = _get_auth_headers(access_token)
-    response = httpx.post(
+    response = get_http_client().post(
         f"{AUTH_URL}/logout",
         json={},
-        headers=headers,
-        timeout=10.0
+        headers=headers
     )
     return response.json() if response.text else {}
 
 
 def get_user_via_rest(access_token: str) -> dict:
     headers = _get_auth_headers(access_token)
-    response = httpx.get(f"{AUTH_URL}/user", headers=headers, timeout=5.0)
+    response = get_http_client().get(f"{AUTH_URL}/user", headers=headers)
     if response.status_code == 200:
         return response.json()
     return {}
 
 
-# Database functions - use Supabase client (connection pooling built-in)
-def _build_query(client, table: str, columns: str = "*", filters: dict = None, order: str = None, limit: int = None):
-    query = client.table(table).select(columns)
+def rest_select(table: str, filters: dict = None, order: str = None, limit: int = None, columns: str = "*") -> list:
+    """Select rows using pooled HTTP client"""
+    params = [f"select={columns}"]
     if filters:
         for key, value in filters.items():
-            clean_value = value.replace("eq.", "") if isinstance(value, str) and value.startswith("eq.") else value
-            query = query.eq(key, clean_value)
+            if isinstance(value, str) and value.startswith("eq."):
+                params.append(f"{key}={value}")
+            else:
+                params.append(f"{key}=eq.{value}")
     if order:
-        parts = order.split(".")
-        col = parts[0]
-        direction = parts[1] if len(parts) > 1 else "asc"
-        query = query.order(col, desc=(direction == "desc"))
+        params.append(f"order={order}")
     if limit:
-        query = query.limit(limit)
-    return query
+        params.append(f"limit={limit}")
 
+    query_string = "&".join(params)
+    url = f"{REST_URL}/{table}?{query_string}"
 
-def rest_select(table: str, filters: dict = None, order: str = None, limit: int = None, columns: str = "*") -> list:
-    """Select rows using Supabase client (HTTP connection pooling)"""
     try:
-        client = get_db()
-        if client is None:
-            return []
-        query = _build_query(client, table, columns, filters, order, limit)
-        result = query.execute()
-        if result.data is not None:
-            return result.data
-        return []
+        response = get_http_client().get(url, headers=_get_headers())
+        if response.status_code == 200:
+            return response.json()
     except Exception as e:
         print(f"REST select error ({table}): {e}")
     return []
@@ -132,42 +131,40 @@ def rest_select(table: str, filters: dict = None, order: str = None, limit: int 
 
 def rest_select_auth(table: str, access_token: str, filters: dict = None, order: str = None, limit: int = None, columns: str = "*") -> list:
     """Select rows using user's access token (authenticated)"""
+    params = [f"select={columns}"]
+    if filters:
+        for key, value in filters.items():
+            if isinstance(value, str) and value.startswith("eq."):
+                params.append(f"{key}={value}")
+            else:
+                params.append(f"{key}=eq.{value}")
+    if order:
+        params.append(f"order={order}")
+    if limit:
+        params.append(f"limit={limit}")
+
+    query_string = "&".join(params)
+    url = f"{REST_URL}/{table}?{query_string}"
+
     try:
-        client = get_supabase_client()
-        if client is None:
-            return []
-        query = client.table(table).select(columns)
-        if filters:
-            for key, value in filters.items():
-                clean_value = value.replace("eq.", "") if isinstance(value, str) and value.startswith("eq.") else value
-                query = query.eq(key, clean_value)
-        if order:
-            parts = order.split(".")
-            col = parts[0]
-            direction = parts[1] if len(parts) > 1 else "asc"
-            query = query.order(col, desc=(direction == "desc"))
-        if limit:
-            query = query.limit(limit)
-        query = query.headers({"Authorization": f"Bearer {access_token}"})
-        result = query.execute()
-        if result.data is not None:
-            return result.data
-        return []
+        response = get_http_client().get(url, headers=_get_auth_headers(access_token))
+        if response.status_code == 200:
+            return response.json()
     except Exception as e:
         print(f"REST select auth error ({table}): {e}")
     return []
 
 
 def rest_insert(table: str, data: dict) -> dict:
-    """Insert row using Supabase client"""
+    """Insert row using pooled HTTP client"""
+    url = f"{REST_URL}/{table}"
     try:
-        client = get_db()
-        if client is None:
-            return {}
-        result = client.table(table).insert(data).execute()
-        if result.data:
-            return result.data[0]
-        return {}
+        response = get_http_client().post(url, json=data, headers=_get_headers())
+        if response.status_code in [200, 201]:
+            result = response.json()
+            if isinstance(result, list) and result:
+                return result[0]
+            return result
     except Exception as e:
         print(f"REST insert error ({table}): {e}")
     return {}
@@ -175,33 +172,37 @@ def rest_insert(table: str, data: dict) -> dict:
 
 def rest_insert_auth(table: str, access_token: str, data: dict) -> dict:
     """Insert row using authenticated access token"""
+    url = f"{REST_URL}/{table}"
     try:
-        client = get_supabase_client()
-        if client is None:
-            return {}
-        result = client.table(table).insert(data).headers({"Authorization": f"Bearer {access_token}"}).execute()
-        if result.data:
-            return result.data[0]
-        return {}
+        response = get_http_client().post(url, json=data, headers=_get_auth_headers(access_token))
+        if response.status_code in [200, 201]:
+            result = response.json()
+            if isinstance(result, list) and result:
+                return result[0]
+            return result
     except Exception as e:
         print(f"REST insert auth error ({table}): {e}")
     return {}
 
 
 def rest_update(table: str, data: dict, filters: dict) -> dict:
-    """Update row using Supabase client"""
+    """Update row using pooled HTTP client"""
+    filter_parts = []
+    for key, value in filters.items():
+        if isinstance(value, str) and value.startswith("eq."):
+            filter_parts.append(f"{key}={value}")
+        else:
+            filter_parts.append(f"{key}=eq.{value}")
+    filter_string = "&".join(filter_parts)
+    url = f"{REST_URL}/{table}?{filter_string}"
+
     try:
-        client = get_db()
-        if client is None:
-            return {}
-        query = client.table(table).update(data)
-        for key, value in filters.items():
-            clean_value = value.replace("eq.", "") if isinstance(value, str) and value.startswith("eq.") else value
-            query = query.eq(key, clean_value)
-        result = query.execute()
-        if result.data:
-            return result.data[0]
-        return {}
+        response = get_http_client().patch(url, json=data, headers=_get_headers())
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, list) and result:
+                return result[0]
+            return result
     except Exception as e:
         print(f"REST update error ({table}): {e}")
     return {}
@@ -209,41 +210,43 @@ def rest_update(table: str, data: dict, filters: dict) -> dict:
 
 def rest_update_auth(table: str, access_token: str, data: dict, filters: dict) -> dict:
     """Update row using authenticated access token"""
+    filter_parts = []
+    for key, value in filters.items():
+        if isinstance(value, str) and value.startswith("eq."):
+            filter_parts.append(f"{key}={value}")
+        else:
+            filter_parts.append(f"{key}=eq.{value}")
+    filter_string = "&".join(filter_parts)
+    url = f"{REST_URL}/{table}?{filter_string}"
+
     try:
-        client = get_supabase_client()
-        if client is None:
-            return {}
-        query = client.table(table).update(data).headers({"Authorization": f"Bearer {access_token}"})
-        for key, value in filters.items():
-            clean_value = value.replace("eq.", "") if isinstance(value, str) and value.startswith("eq.") else value
-            query = query.eq(key, clean_value)
-        result = query.execute()
-        if result.data:
-            return result.data[0]
-        return {}
+        response = get_http_client().patch(url, json=data, headers=_get_auth_headers(access_token))
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, list) and result:
+                return result[0]
+            return result
     except Exception as e:
         print(f"REST update auth error ({table}): {e}")
     return {}
 
 
 def rest_delete(table: str, filters: dict) -> bool:
-    """Delete row using Supabase client"""
+    """Delete row using pooled HTTP client"""
+    filter_parts = []
+    for key, value in filters.items():
+        filter_parts.append(f"{key}=eq.{value}")
+    filter_string = "&".join(filter_parts)
+    url = f"{REST_URL}/{table}?{filter_string}"
+
     try:
-        client = get_db()
-        if client is None:
-            return False
-        query = client.table(table).delete()
-        for key, value in filters.items():
-            clean_value = value.replace("eq.", "") if isinstance(value, str) and value.startswith("eq.") else value
-            query = query.eq(key, clean_value)
-        result = query.execute()
-        return True
+        response = get_http_client().delete(url, headers=_get_headers())
+        return response.status_code in [200, 204]
     except Exception as e:
         print(f"REST delete error ({table}): {e}")
     return False
 
 
-# Supabase client singleton
 supabase: Client = None
 
 
@@ -266,14 +269,12 @@ def get_db():
 
 
 def get_storage_transform_url(public_url: str, width: int = 400, height: int = 300) -> str:
-    """Add Supabase Storage transformation params to URL for resized thumbnails."""
     if not public_url or "/storage/" not in public_url:
         return public_url
     return f"{public_url}?width={width}&height={height}&resize=cover"
 
 
 def upload_image(file_data: bytes, file_name: str, bucket: str = "listing-images", access_token: str = None) -> Optional[str]:
-    """Upload image to Supabase Storage and return public URL"""
     import uuid
 
     file_ext = file_name.split('.')[-1].lower() if '.' in file_name else 'jpg'
@@ -291,7 +292,7 @@ def upload_image(file_data: bytes, file_name: str, bucket: str = "listing-images
     }
 
     try:
-        response = httpx.post(
+        response = get_http_client().post(
             f"{STORAGE_URL}/object/{bucket}/{storage_path}",
             content=file_data,
             headers=headers,
@@ -310,6 +311,7 @@ def invalidate_cache(key_pattern: str = None):
     if key_pattern is None:
         cache_clear()
     else:
+        from lib.cache import _cache
         keys_to_delete = [k for k in _cache.keys() if key_pattern in k]
         for k in keys_to_delete:
             cache_delete(k)

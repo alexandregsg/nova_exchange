@@ -1,7 +1,7 @@
 # Profiles API - User profile management
 from typing import Optional, List
 from pydantic import BaseModel, Field
-from lib.supabase import rest_select, rest_insert, rest_update, rest_update_auth, invalidate_cache
+from lib.supabase import rest_select, rest_select_auth, rest_insert, rest_update, rest_update_auth, invalidate_cache
 from lib.cache import cache_get, cache_set
 
 
