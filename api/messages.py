@@ -17,46 +17,63 @@ class MessageCreate(BaseModel):
 
 
 def get_conversations(user_id: str, access_token: str = None) -> List[dict]:
+    """Get conversations with enriched data using the conversations_enriched view + bulk message fetch.
+    Reduces N*4 queries to just 3 queries total."""
     if access_token:
-        all_convs = rest_select_auth("conversations", access_token, order="created_at.desc")
+        all_convs = rest_select_auth("conversations_enriched", access_token, order="created_at.desc")
     else:
-        all_convs = rest_select("conversations", order="created_at.desc")
+        all_convs = rest_select("conversations_enriched", order="created_at.desc")
+
     filtered = [c for c in all_convs if c.get("buyer_id") == user_id or c.get("seller_id") == user_id]
-    
+
+    conv_ids = [c.get("id") for c in filtered if c.get("id")]
+
+    all_messages = {}
+    if conv_ids and access_token:
+        messages_by_conv = rest_select_auth("messages", access_token, order="created_at.desc",
+                                            columns="id,conversation_id,content,created_at,sender_id,read_at")
+        if messages_by_conv:
+            for msg in messages_by_conv:
+                cid = msg.get("conversation_id")
+                if cid not in all_messages:
+                    all_messages[cid] = []
+                all_messages[cid].append(msg)
+
     enriched = []
     for conv in filtered:
+        conv_id = conv.get("id")
         conv["is_buying"] = conv.get("buyer_id") == user_id
         conv["is_selling"] = conv.get("seller_id") == user_id
-        
-        listings = rest_select("listings", filters={"id": f"eq.{conv.get('listing_id')}"})
-        if listings:
-            conv["listing_title"] = listings[0].get("title")
-            image_urls = listings[0].get("image_urls")
-            if image_urls and isinstance(image_urls, list) and len(image_urls) > 0:
-                conv["listing_thumbnail"] = image_urls[0]
-            else:
-                conv["listing_thumbnail"] = None
-        
+
         other_user_id = conv.get("buyer_id") if conv.get("seller_id") == user_id else conv.get("seller_id")
         conv["other_user_id"] = other_user_id
-        profiles = rest_select("profiles", filters={"user_id": f"eq.{other_user_id}"})
-        if profiles:
-            conv["other_user_name"] = profiles[0].get("name")
-            conv["other_user_avatar_url"] = profiles[0].get("avatar_url")
-        
-        messages = rest_select("messages", filters={"conversation_id": f"eq.{conv.get('id')}"}, limit=1, order="created_at.desc")
-        if messages:
-            conv["last_message"] = messages[0].get("content")
-            conv["last_message_at"] = messages[0].get("created_at")
-        
-        unread_msgs = rest_select("messages", filters={"conversation_id": f"eq.{conv.get('id')}", "sender_id": f"ne.{user_id}"})
-        unread_count = 0
-        if unread_msgs:
-            unread_count = sum(1 for m in unread_msgs if m.get("read_at") is None)
-        conv["unread_count"] = unread_count
-        
+
+        if conv.get("seller_id") == user_id:
+            conv["other_user_name"] = conv.get("buyer_name", "User")
+            conv["other_user_avatar_url"] = conv.get("buyer_avatar_url")
+        else:
+            conv["other_user_name"] = conv.get("seller_name", "User")
+            conv["other_user_avatar_url"] = conv.get("seller_avatar_url")
+
+        thumbs = conv.get("listing_thumbnails")
+        if thumbs and isinstance(thumbs, list) and len(thumbs) > 0:
+            conv["listing_thumbnail"] = thumbs[0]
+        else:
+            conv["listing_thumbnail"] = None
+
+        conv_messages = all_messages.get(conv_id, [])
+        if conv_messages:
+            conv["last_message"] = conv_messages[0].get("content")
+            conv["last_message_at"] = conv_messages[0].get("created_at")
+            unread_count = sum(1 for m in conv_messages if m.get("sender_id") != user_id and m.get("read_at") is None)
+            conv["unread_count"] = unread_count
+        else:
+            conv["last_message"] = None
+            conv["last_message_at"] = None
+            conv["unread_count"] = 0
+
         enriched.append(conv)
-    
+
     return enriched
 
 

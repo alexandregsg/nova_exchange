@@ -1,7 +1,8 @@
 # Listings API - CRUD operations for marketplace listings
 from typing import Optional, List
 from pydantic import BaseModel, Field
-from lib.supabase import rest_select, rest_insert, rest_update, rest_delete
+from lib.supabase import rest_select, rest_insert, rest_update, rest_delete, invalidate_cache
+from lib.cache import cache_get, cache_set
 
 
 class ListingInput(BaseModel):
@@ -38,7 +39,9 @@ def create_listing(input: ListingInput) -> dict:
         "image_urls": input.image_urls,
         "seller_email": input.seller_email
     }
-    return rest_insert("listings", data)
+    result = rest_insert("listings", data)
+    invalidate_cache("featured")
+    return result
 
 
 def get_listings(limit: int = 20, offset: int = 0) -> tuple[List[dict], int]:
@@ -46,9 +49,19 @@ def get_listings(limit: int = 20, offset: int = 0) -> tuple[List[dict], int]:
     return results, len(results)
 
 
-def get_listing_by_id(id: str) -> Optional[dict]:
+def get_listing_by_id(id: str, access_token: str = None) -> Optional[dict]:
     results = rest_select("listings", filters={"id": f"eq.{id}"})
     return results[0] if results else None
+
+
+def get_listing_with_seller(id: str, access_token: str = None) -> Optional[dict]:
+    """Get listing with seller profile data joined in a single query.
+    Uses the profiles foreign key relationship if available, otherwise falls back."""
+    results = rest_select("listings", filters={"id": f"eq.{id}"},
+                         columns="*,profiles!listings_user_id_fkey(name,phone,show_phone,avatar_url,created_at)")
+    if results:
+        return results[0]
+    return get_listing_by_id(id)
 
 
 def get_listings_by_user(user_id: str) -> List[dict]:
@@ -62,15 +75,26 @@ def update_listing(id: str, input_data: dict, user_id: str) -> Optional[dict]:
         update_data = {k: v for k, v in input_data.items() if v is not None}
     if not update_data:
         return None
-    return rest_update("listings", update_data, {"id": f"eq.{id}", "user_id": f"eq.{user_id}"})
+    result = rest_update("listings", update_data, {"id": f"eq.{id}", "user_id": f"eq.{user_id}"})
+    invalidate_cache("featured")
+    return result
 
 
 def delete_listing(id: str, user_id: str) -> bool:
-    return rest_delete("listings", {"id": f"eq.{id}", "user_id": f"eq.{user_id}"})
+    result = rest_delete("listings", {"id": f"eq.{id}", "user_id": f"eq.{user_id}"})
+    invalidate_cache("featured")
+    return result
 
 
 def get_featured_listings(limit: int = 6) -> List[dict]:
-    return rest_select("listings", order="created_at.desc", limit=limit)
+    cache_key = f"featured_listings:{limit}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached[:limit] if len(cached) > limit else cached
+    results = rest_select("listings", order="created_at.desc", limit=limit * 3,
+                          columns="id,title,price,condition,category,image_urls,status,user_id,seller_email")
+    cache_set(cache_key, results, ttl=30)
+    return results[:limit]
 
 
 def search_listings(query: str = "", category: Optional[str] = None, condition: Optional[str] = None, 

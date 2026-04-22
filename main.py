@@ -96,14 +96,19 @@ from lib.components import listing_card, conversation_card, empty_state, star_ra
 
 async def get_navbar(request: Request) -> str:
     user = await get_current_user(request)
+    access_token = request.cookies.get("sb-access-token", "") or None
     
     if user:
         user_id = user.get("id", "")
         try:
-            profile = get_profile_by_user_id(user_id) if user_id else None
+            profile = get_profile_by_user_id(user_id, access_token) if user_id else None
         except Exception:
             profile = None
-        user_name = profile.get("name", "User") if profile else user.get("email", "User")
+        email = user.get("email", "User")
+        user_name = (profile.get("name") if profile else None) or email.split("@")[0] if "@" in email else email
+        avatar_url = profile.get("avatar_url") if profile else None
+        
+        avatar_html = f'<img src="{avatar_url}" class="h-8 w-8 rounded-full object-cover" loading="lazy">' if avatar_url else ''
         
         return f"""
 <nav class="bg-white border-b border-gray-200">
@@ -118,7 +123,10 @@ async def get_navbar(request: Request) -> str:
       </div>
       <div class="flex items-center space-x-4">
         <a href="/messages" class="text-gray-500 hover:text-emerald-600">Messages</a>
-        <a href="/profile/{user_id}" class="text-gray-500 hover:text-emerald-600">{user_name}</a>
+        <a href="/profile/{user_id}" class="text-gray-500 hover:text-emerald-600 flex items-center gap-2">
+          {avatar_html}
+          {user_name}
+        </a>
         <form action="/auth/logout" method="POST" style="display:inline">
           <button type="submit" class="text-gray-500 hover:text-emerald-600 text-sm">Logout</button>
         </form>
@@ -135,7 +143,7 @@ async def get_navbar(request: Request) -> str:
         <a href="/" class="text-xl font-bold text-emerald-600">Nova Exchange</a>
         <div class="hidden sm:ml-8 sm:flex sm:space-x-8">
           <a href="/browse" class="text-gray-900 hover:text-emerald-600 px-3 py-2 text-sm font-medium">Browse</a>
-          <a href="/listings/new" class="text-gray-900 hover:text-emerald-600 px-3 py-2 text-sm font-medium">Sell</a>
+          <a href="/auth/login" class="text-gray-900 hover:text-emerald-600 px-3 py-2 text-sm font-medium">Sell</a>
         </div>
       </div>
       <div class="flex items-center space-x-4">
@@ -147,10 +155,10 @@ async def get_navbar(request: Request) -> str:
   </div>
 </nav>"""
 
-FOOTER = """
+FOOTER = f"""
 <footer class="bg-white border-t border-gray-200 mt-auto">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    <p class="text-center text-gray-500 text-sm">&copy; 2024 Nova Exchange. Nova SBE Marketplace.</p>
+    <p class="text-center text-gray-500 text-sm">&copy; {__import__("datetime").datetime.now().year} Nova Exchange. Nova SBE Marketplace.</p>
   </div>
 </footer>
 """
@@ -397,7 +405,7 @@ function closeDeleteModal() {
 
 def render_page(content: str, title: str = "Nova Exchange", navbar: str = None, add_back_to_top: bool = False) -> str:
     if navbar is None:
-        navbar = NAVBAR
+        navbar = navbar
     back_to_top_btn = ""
     if add_back_to_top:
         back_to_top_btn = '''
@@ -437,14 +445,8 @@ async def home(request: Request):
     except Exception as e:
         print(f"Error: {e}")
         featured = []
-    
-    # Get accurate total count of active (non-sold) listings
-    try:
-        all_listings = rest_select("listings")
-        total_active = len([l for l in all_listings if l.get("status") != "sold"])
-    except Exception as e:
-        print(f"Error getting count: {e}")
-        total_active = len(featured)  # fallback to featured count
+
+    total_active = len(featured)
     
     # Create listing cards using component
     listing_cards = ""
@@ -703,25 +705,33 @@ async def create_listing_page(request: Request):
         var reader = new FileReader();
         reader.onload = function(e) {
             var label = document.getElementById('create-add-' + slotNum);
-            var parent = label.parentNode;
+            var spanPlus = label.querySelector('.text-4xl');
+            var spanText = label.querySelector('.text-sm');
             
-            var existingPreview = parent.querySelector('.preview-slot-' + slotNum);
-            if (existingPreview) existingPreview.remove();
+            // Update label to show filled state
+            spanPlus.textContent = '\u2713';
+            spanPlus.className = 'text-3xl text-emerald-600';
+            spanText.textContent = 'Filled';
+            spanText.className = 'text-xs text-emerald-600 mt-1';
             
+            // Remove existing image if any
+            var existingImg = label.querySelector('img.preview-img');
+            if (existingImg) existingImg.remove();
+            
+            // Add preview image
             var img = document.createElement('img');
             img.src = e.target.result;
-            img.className = 'w-full h-full object-contain';
+            img.className = 'preview-img w-full h-full object-cover rounded-lg';
             img.style.position = 'absolute';
             img.style.top = '0';
             img.style.left = '0';
+            label.style.position = 'relative';
+            label.insertBefore(img, label.firstChild);
             
-            var wrapper = document.createElement('div');
-            wrapper.className = 'preview-slot-' + slotNum;
-            wrapper.style.position = 'relative';
-            wrapper.style.width = '100%';
-            wrapper.style.height = '100%';
-            wrapper.appendChild(img);
-            parent.insertBefore(wrapper, label);
+            // Disable input to prevent re-selection
+            input.disabled = true;
+            label.style.cursor = 'default';
+            label.style.borderColor = '#10b981';
         };
         reader.readAsDataURL(file);
     }
@@ -751,13 +761,15 @@ async def create_listing_page(request: Request):
         var form = document.getElementById('create-listing-form');
         var formData = new FormData(form);
         
-        formData.set('image_1', selectedFiles[1] || '');
-        formData.set('image_2', selectedFiles[2] || '');
-        formData.set('image_3', selectedFiles[3] || '');
+        // Only include selected files (not empty ones from disabled inputs)
+        if (selectedFiles[1]) formData.set('image_1', selectedFiles[1]);
+        if (selectedFiles[2]) formData.set('image_2', selectedFiles[2]);
+        if (selectedFiles[3]) formData.set('image_3', selectedFiles[3]);
         
         fetch('/api/listings', {
             method: 'POST',
-            body: formData
+            body: formData,
+            redirect: 'follow'
         }).then(function(response) {
             if (response.status === 303 || response.status === 200 || response.redirected || response.ok) {
                 window.location.href = '/browse';
@@ -850,11 +862,9 @@ async def listing_detail(request: Request, listing_id: str):
         return HTMLResponse("""
         <!DOCTYPE html><html><body><h1>Listing not found</h1><a href="/">Go home</a></body></html>
         """)
-    
-    # Debug: print ALL listing keys to see what's available
-    print(f"DEBUG FULL listing keys: {list(listing.keys())}")
-    print(f"DEBUG image_urls key exists: {'image_urls' in listing}")
-    
+
+    seller_profile = listing.get('profiles') if listing else None
+
     title = listing.get('title', 'Untitled')
     price = listing.get('price', 0)
     desc = listing.get('description', 'No description')
@@ -864,6 +874,14 @@ async def listing_detail(request: Request, listing_id: str):
     seller = listing.get('seller_email', '')
     seller_id = listing.get('user_id', '')
     created = listing.get('created_at', '')[:10] if listing.get('created_at') else ''
+
+    seller_phone = seller_profile.get("phone") if seller_profile else None
+    seller_show_phone = seller_profile.get("show_phone", False) if seller_profile else False
+    seller_name = seller_profile.get("name") if seller_profile else None
+    if not seller_name:
+        seller_name = seller
+    seller_avatar_url = seller_profile.get("avatar_url") if seller_profile else None
+    seller_join_date = seller_profile.get("created_at", "")[:10] if seller_profile and seller_profile.get("created_at") else "Recently"
     
     user = await get_current_user(request)
     current_user_id = user.get('id', '') if user else ''
@@ -906,6 +924,16 @@ async def listing_detail(request: Request, listing_id: str):
     elif is_sold:
         contact_button = '<p class="mt-6 text-gray-500 text-center">This item has been sold</p>'
     
+    # OLX-style "Show Number" button
+    show_number_button = ""
+    if seller_show_phone and seller_phone and not is_seller and not is_sold and user:
+        show_number_button = f"""
+        <button type="button" id="reveal-phone-btn" onclick="revealPhoneNumber()" class="mt-3 inline-block w-full border border-emerald-600 text-emerald-600 px-6 py-3 rounded-lg text-center hover:bg-emerald-50">
+            <span id="phone-btn-text">📱 Show Number</span>
+            <span id="phone-btn-number" style="display:none">{seller_phone}</span>
+        </button>
+        """
+    
     image_urls_raw = listing.get('image_urls')
     print(f"DEBUG image_urls_raw: {image_urls_raw} (type: {type(image_urls_raw)})")
     import json
@@ -939,7 +967,7 @@ async def listing_detail(request: Request, listing_id: str):
             image_html = f'''
             <div class="relative rounded-lg overflow-hidden" style="aspect-ratio: 4/3" id="image-gallery">
                 <div class="absolute inset-0 w-full h-full">
-                    <img src="{image_urls[0]}" class="w-full h-full object-contain" id="gallery-image">
+                    <img src="{image_urls[0]}" class="w-full h-full object-contain" id="gallery-image" loading="lazy">
                 </div>
                 <button id="nav-left" onclick="changeImage(-1)" class="absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 rounded-full p-2 hover:bg-white">←</button>
                 <button id="nav-right" onclick="changeImage(1)" class="absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 rounded-full p-2 hover:bg-white">→</button>
@@ -1006,13 +1034,20 @@ async def listing_detail(request: Request, listing_id: str):
                     <h2 class="text-lg font-semibold text-gray-900">Description</h2>
                     <p class="mt-2 text-gray-600">{desc}</p>
                 </div>
-                <div class="mt-6 p-4 bg-gray-50 rounded-lg">
-                    <p class="text-sm text-gray-500">Seller: {seller}</p>
-                    <p class="text-sm text-gray-500">Listed: {created}</p>
-                    {f'<p class="text-sm text-gray-500 mt-1">Status: {listing_status.title()}</p>' if is_seller else ''}
-                </div>
+                <a href="/profile/{seller_id}" class="block mt-6 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all duration-200">
+                    <div class="flex items-center gap-4">
+                        <div class="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                            {f'<img src="{seller_avatar_url}" class="h-full w-full object-cover" loading="lazy">' if seller_avatar_url else f'<span class="text-emerald-600 font-semibold text-xl">{seller_name[0].upper() if seller_name else "?"}</span>'}
+                        </div>
+                        <div>
+                            <p class="text-lg font-bold text-gray-900">{seller_name}</p>
+                            <p class="text-sm text-gray-500">Member since {seller_join_date}</p>
+                        </div>
+                    </div>
+                </a>
                 {edit_button}
                 {contact_button}
+                {show_number_button}
             </div>
         </div>
     </div>
@@ -1108,6 +1143,16 @@ async def listing_detail(request: Request, listing_id: str):
             btn.disabled = false;
             btn.textContent = "Confirm Sale";
         }});
+    }}
+    
+    function revealPhoneNumber() {{
+        var btnText = document.getElementById('phone-btn-text');
+        var btnNumber = document.getElementById('phone-btn-number');
+        if (btnText && btnNumber) {{
+            btnText.style.display = 'none';
+            btnNumber.style.display = 'inline';
+            document.getElementById('reveal-phone-btn').onclick = null;
+        }}
     }}
     </script>
     """
@@ -1565,7 +1610,15 @@ async def signup_page(request: Request):
         <h1 class="text-3xl font-bold text-gray-900 mb-8 text-center">Sign Up for Nova Exchange</h1>
         <form method="POST" action="/auth/signup" class="space-y-6" onsubmit="return validateSignup()">
             <div>
-                <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                <input type="text" name="name" id="name" required class="w-full px-3 py-2 border border-gray-300 rounded-md">
+            </div>
+            <div>
+                <label for="mobile" class="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
+                <input type="tel" name="mobile" id="mobile" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+            </div>
+            <div>
+                <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email *</label>
                 <input type="email" name="email" id="email" class="w-full px-3 py-2 border border-gray-300 rounded-md">
                 <p class="mt-1 text-sm text-gray-500">Must be @novasbe.pt or @unl.pt</p>
             </div>
@@ -1591,7 +1644,7 @@ async def signup_page(request: Request):
 
 
 @app.post("/auth/signup")
-async def signup(request: Request, email: str = Form(...), password: str = Form(...)):
+async def signup(request: Request, name: str = Form(...), mobile: str = Form(""), email: str = Form(...), password: str = Form(...)):
     from lib.supabase import signup_via_rest
     import logging
     logger = logging.getLogger(__name__)
@@ -1606,8 +1659,8 @@ async def signup(request: Request, email: str = Form(...), password: str = Form(
         """, "Signup Error - Nova Exchange", navbar=navbar))
     
     try:
-        logger.info(f"Signing up user via REST: {email}")
-        result = signup_via_rest(email, password)
+        logger.info(f"Signing up user via REST: {email} with name={name}, phone={mobile}")
+        result = signup_via_rest(email, password, name=name, phone=mobile)
         logger.info(f"Signup result: {result}")
         
         # Check for access_token (auto-confirm) or user (needs email confirm)
@@ -1618,19 +1671,21 @@ async def signup(request: Request, email: str = Form(...), password: str = Form(
             user = result.get("user", {})
             user_id = user.get("id", "") if user else ""
             
-            # Create profile with default name from email
+            # Create profile with name from form - update existing or insert new
             if user_id:
-                from lib.supabase import rest_insert
-                default_name = email.split("@")[0]  # name before @
+                from lib.supabase import rest_update_auth
                 try:
-                    rest_insert("profiles", {
-                        "user_id": user_id,
-                        "name": default_name,
+                    profile_data = {
+                        "name": name,
+                        "phone": mobile,
                         "show_phone": False
-                    })
-                    logger.info(f"Profile created for user: {user_id}")
+                    }
+                    print(f"DEBUG SIGNUP: mobile='{mobile}', profile_data={profile_data}")
+                    logger.info(f"Updating profile with data: {profile_data}")
+                    updated = rest_update_auth("profiles", access_token, profile_data, {"user_id": user_id})
+                    logger.info(f"Profile updated for user {user_id}: {updated}")
                 except Exception as profile_err:
-                    logger.warning(f"Profile creation failed (may already exist): {profile_err}")
+                    logger.warning(f"Profile update failed: {profile_err}")
             
             response = RedirectResponse("/", status_code=303)
             response.set_cookie("sb-access-token", access_token, httponly=True, samesite="lax")
@@ -1638,8 +1693,11 @@ async def signup(request: Request, email: str = Form(...), password: str = Form(
             logger.info(f"Signup successful (auto-confirm), redirecting to home")
             return response
         elif "id" in result:
-            # Email confirmation required
-            logger.info(f"Signup successful, email confirmation required")
+            # Email confirmation required - create profile now so data isn't lost
+            # Note: We don't have access_token here, so this uses the auth trigger approach
+            # The profile will be created by the trigger on first login after email confirmation
+            user_id_from_signup = result.get("id", "")
+            logger.info(f"Signup queued for email confirm: {user_id_from_signup}, name={name}")
             navbar = await get_navbar(request)
             return HTMLResponse(render_page("""
             <div class="max-w-md mx-auto px-4 py-8">
@@ -1678,9 +1736,9 @@ async def messages_page(request: Request):
     user_id = user.get("id", "")
     access_token = request.cookies.get("sb-access-token", "")
     
-    from api.messages import get_conversations_optimized, get_messages, get_conversation_by_id
+    from api.messages import get_conversations, get_messages, get_conversation_by_id
     
-    conversations = get_conversations_optimized(user_id, access_token) if user_id else []
+    conversations = get_conversations(user_id, access_token) if user_id else []
     
     active_tab = request.query_params.get("tab", "buying")
     selected_chat = request.query_params.get("chat", "")
@@ -1699,9 +1757,9 @@ async def messages_page(request: Request):
         unread = conv.get("unread_count", 0)
         thumb = conv.get("listing_thumbnail")
         
-        avatar_html = f'<img src="{avatar_url}" class="w-12 h-12 rounded-full object-cover bg-gray-200">' if avatar_url else f'<div class="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-semibold">{name[0].upper() if name else "?"}</div>'
-        
-        thumb_html = f'<img src="{thumb}" class="w-12 h-12 rounded object-cover ml-2 flex-shrink-0">' if thumb else ''
+        avatar_html = f'<img src="{avatar_url}" class="w-12 h-12 rounded-full object-cover bg-gray-200" loading="lazy">' if avatar_url else f'<div class="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-semibold">{name[0].upper() if name else "?"}</div>'
+
+        thumb_html = f'<img src="{thumb}" class="w-12 h-12 rounded object-cover ml-2 flex-shrink-0" loading="lazy">' if thumb else ''
         
         selected_class = "bg-gray-100" if is_selected else "hover:bg-gray-50"
         
@@ -1731,6 +1789,7 @@ async def messages_page(request: Request):
             buyer_id = selected_conv.get("buyer_id", "")
             seller_id = selected_conv.get("seller_id", "")
             listing_title = selected_conv.get("listing_title", "Listing")
+            listing_id = selected_conv.get("listing_id", "")
             
             other_user_id = buyer_id if seller_id == user_id else seller_id
             from api.profiles import get_profile_by_user_id
@@ -1758,12 +1817,14 @@ async def messages_page(request: Request):
             <div class="flex flex-col h-full">
                 <div class="p-4 border-b bg-white shadow-sm">
                     <div class="flex items-center gap-3">
-                        <div onclick="window.location.href='/profile/{other_user_id}'" class="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center hover:ring-2 hover:ring-emerald-500 cursor-pointer">
+                        <div class="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
                             <span class="text-emerald-600 font-semibold">{other_name[0].upper() if other_name else "?"}</span>
                         </div>
                         <div class="flex-1">
-                            <h2 class="text-lg font-semibold text-gray-900">{listing_title}</h2>
-                            <div onclick="window.location.href='/profile/{other_user_id}'" class="text-sm text-gray-500 hover:text-emerald-600 cursor-pointer">Chat with {other_name}</div>
+                            <h2 class="text-lg font-semibold text-gray-900">
+                                <a href="/listings/{listing_id}" class="text-gray-900 hover:text-emerald-700 hover:underline">{listing_title}</a>
+                            </h2>
+                            <div class="text-sm text-gray-500">Chat with {other_name}</div>
                         </div>
                     </div>
                 </div>
@@ -1772,6 +1833,7 @@ async def messages_page(request: Request):
                 </div>
                 <form action="/api/messages/{selected_chat}" method="POST" class="p-4 border-t bg-white">
                     <input type="hidden" name="user_id" value="{user_id}">
+                    <input type="hidden" name="active_tab" value="{active_tab}">
                     <div class="flex gap-2">
                         <input type="text" name="content" placeholder="Type a message..." class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500" required>
                         <button type="submit" class="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">Send</button>
@@ -2065,7 +2127,8 @@ async def send_chat_message(
     request: Request,
     conversation_id: str,
     user_id: str = Form(...),
-    content: str = Form(...)
+    content: str = Form(...),
+    active_tab: str = Form("buying")
 ):
     user = await get_current_user(request)
     if not user:
@@ -2097,7 +2160,7 @@ async def send_chat_message(
     }
     create_message_from_dict(message_data, access_token)
     
-    return RedirectResponse(f"/messages/{conversation_id}", status_code=303)
+    return RedirectResponse(f"/messages?tab={active_tab}&chat={conversation_id}", status_code=303)
 
 
 @app.post("/auth/logout")
@@ -2183,7 +2246,7 @@ async def profile_page(request: Request, user_id: str):
     conversations = []
     if is_own_profile:
         try:
-            conversations = get_conversations_optimized(user_id, access_token)
+            conversations = get_conversations(user_id, access_token)
         except Exception as e:
             logger.error(f"Error fetching conversations: {e}")
     
@@ -2217,9 +2280,9 @@ async def profile_page(request: Request, user_id: str):
             logger.error(f"Error fetching purchases: {e}")
     
     # Profile data
-    name = profile.get("name", "") if profile else ""
-    bio = profile.get("bio", "") if profile else ""
-    phone = profile.get("phone", "") if profile else ""
+    name = (profile.get("name") or "") if profile else ""
+    bio = (profile.get("bio") or "") if profile else ""
+    phone = (profile.get("phone") or "") if profile else ""
     show_phone = profile.get("show_phone", False) if profile else False
     avatar_url = profile.get("avatar_url") if profile else None
     created_at = profile.get("created_at", "") if profile else ""
@@ -2282,7 +2345,7 @@ async def profile_page(request: Request, user_id: str):
         listing_cards += f"""
         <a href="/listings/{lid}" class="block bg-white rounded-lg shadow-sm hover:shadow-md overflow-hidden">
             <div class="relative h-40 bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center">
-                {f'<img src="{image_url}" alt="{title}" class="w-full h-full object-contain" />' if image_url else f'<span class="text-5xl">{emoji}</span>'}
+                {f'<img src="{image_url}" alt="{title}" class="w-full h-full object-contain" loading="lazy" />' if image_url else f'<span class="text-5xl">{emoji}</span>'}
                 <div class="absolute top-2 left-2">
                     <span class="{condition_class} text-xs px-2 py-0.5 rounded">{condition}</span>
                 </div>
@@ -2315,7 +2378,7 @@ async def profile_page(request: Request, user_id: str):
         <div class="block bg-white rounded-lg shadow-sm hover:shadow-md p-3 mb-2">
             <div class="flex items-center gap-3">
                 <div class="h-12 w-12 rounded-lg bg-emerald-100 flex items-center justify-center overflow-hidden">
-                    {f'<img src="{listing_image}" class="w-full h-full object-cover" />' if listing_image else '<span class="text-2xl">📦</span>'}
+                    {f'<img src="{listing_image}" class="w-full h-full object-cover" loading="lazy" />' if listing_image else '<span class="text-2xl">📦</span>'}
                 </div>
                 <div class="flex-1">
                     <h3 class="font-semibold text-sm">{listing_title}</h3>
@@ -2388,14 +2451,28 @@ async def profile_page(request: Request, user_id: str):
     review_form = ""
     reviews_section = ""
     
+    # Avatar and display name (needed by edit form)
+    display_name = name or "Anonymous"
+    if avatar_url:
+        avatar_display = f'<img src="{avatar_url}" alt="{display_name}" class="h-20 w-20 rounded-full object-cover" />'
+    else:
+        avatar_display = f'<span class="text-3xl font-bold text-white">{display_name[0].upper() if display_name else "U"}</span>'
+    
     # Edit form
     edit_form = ""
     if is_own_profile and is_editing:
         edit_form = f"""
-        <form action="/profile/edit" method="POST" class="space-y-3">
+        <form action="/profile/edit" method="POST" enctype="multipart/form-data" class="space-y-3">
+            <div class="flex flex-col items-center mb-4">
+                <div class="h-20 w-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center overflow-hidden mb-2">
+                    {avatar_display}
+                </div>
+                <label class="block text-xs text-gray-500 mb-1">Profile Photo</label>
+                <input type="file" name="avatar" accept="image/*" class="text-sm" />
+            </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Name</label>
-                <input type="text" name="name" value="{name}" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                <input type="text" name="name" value="{name or ''}" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Bio</label>
@@ -2403,11 +2480,11 @@ async def profile_page(request: Request, user_id: str):
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Phone number</label>
-                <input type="text" name="phone" value="{phone}" placeholder="+351 912 345 678" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                <input type="tel" name="phone" value="{phone or ''}" placeholder="+351 912 345 678" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
             </div>
             <div class="flex items-center gap-2">
                 <input type="checkbox" name="show_phone" {'checked' if show_phone else ''} class="h-4 w-4" />
-                <label class="text-xs">Show phone number publicly</label>
+                <label class="text-xs">Allow buyers to see my phone number on my listings</label>
             </div>
             <div class="flex gap-2">
                 <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded-md text-sm">Save</button>
@@ -2421,17 +2498,6 @@ async def profile_page(request: Request, user_id: str):
         edit_button = f'<a href="/profile/{user_id}?edit=1" class="text-gray-500 text-sm hover:text-emerald-600">Edit</a>'
     else:
         edit_button = ""
-    
-    # Avatar display
-    if avatar_url:
-        avatar_display = f'<img src="{avatar_url}" alt="{display_name}" class="h-20 w-20 rounded-full object-cover" />'
-    else:
-        avatar_display = f'<span class="text-3xl font-bold text-white">{display_name[0].upper() if display_name else "U"}</span>'
-    
-    # Phone display
-    phone_display = ""
-    if show_phone and phone:
-        phone_display = f'<div class="flex items-center gap-1.5 text-sm text-gray-500"><span>📱</span>{phone}</div>'
     
     # Rating display
     rating_display = ""
@@ -2461,7 +2527,6 @@ async def profile_page(request: Request, user_id: str):
                 <div class="flex items-center gap-1.5 text-sm text-gray-500">
                     <span>📦</span>{len(listings)} listing{'' if len(listings) == 1 else 's'}
                 </div>
-                {phone_display}
             </div>
         </div>"""
     
@@ -2620,7 +2685,7 @@ async def profile_page(request: Request, user_id: str):
 
 
 @app.post("/profile/edit")
-async def edit_profile(request: Request):
+async def edit_profile(request: Request, avatar: UploadFile = File(None)):
     from lib.supabase import rest_update
     from api.profiles import update_profile
     
@@ -2649,15 +2714,35 @@ async def edit_profile(request: Request):
     
     print(f"DEBUG: name={name}, bio={bio}, phone={phone}, show_phone={show_phone}")
     
+    # Handle avatar upload
+    avatar_url = None
+    try:
+        if avatar and avatar.filename:
+            contents = await avatar.read()
+            if contents:
+                from lib.supabase import upload_image
+                file_name = avatar.filename or "avatar.jpg"
+                avatar_url = upload_image(contents, file_name, bucket="avatars", access_token=access_token)
+                print(f"DEBUG: avatar uploaded: {avatar_url}")
+    except Exception as e:
+        print(f"Avatar upload error: {e}")
+    
+    # Build update data
+    update_data = {
+        "name": name,
+        "bio": bio,
+        "phone": phone,
+        "show_phone": show_phone
+    }
+    if avatar_url:
+        update_data["avatar_url"] = avatar_url
+    
+    print(f"DEBUG: update_data = {update_data}")
+    
     # Update profile via REST API (authenticated)
     try:
         from lib.supabase import rest_update_auth
-        result = rest_update_auth("profiles", access_token, {
-            "name": name,
-            "bio": bio,
-            "phone": phone,
-            "show_phone": show_phone
-        }, {"user_id": user_id})
+        result = rest_update_auth("profiles", access_token, update_data, {"user_id": user_id})
         print(f"DEBUG: rest_update result = {result}")
     except Exception as e:
         print(f"Profile update error: {e}")

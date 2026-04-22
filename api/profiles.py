@@ -1,7 +1,8 @@
 # Profiles API - User profile management
 from typing import Optional, List
 from pydantic import BaseModel, Field
-from lib.supabase import rest_select, rest_insert, rest_update
+from lib.supabase import rest_select, rest_insert, rest_update, rest_update_auth, invalidate_cache
+from lib.cache import cache_get, cache_set
 
 
 class ProfileInput(BaseModel):
@@ -30,32 +31,28 @@ def update_profile(input: ProfileUpdate, user_id: str) -> Optional[dict]:
     update_data = {k: v for k, v in input.model_dump().items() if v is not None}
     if not update_data:
         return None
-    return rest_update("profiles", update_data, {"user_id": f"eq.{user_id}"})
+    result = rest_update("profiles", update_data, {"user_id": f"eq.{user_id}"})
+    if result:
+        invalidate_cache(f"profile:{user_id}")
+    return result
 
 
-# Updated function with debug logging and error handling
 def get_profile_by_user_id(user_id: str, access_token: str = None) -> Optional[dict]:
-    """Get profile by user_id - uses auth token if provided"""
-    from lib.supabase import rest_select, rest_select_auth
-    
-    try:
-        # If access_token provided, use authenticated request (passes RLS)
-        if access_token:
-            results = rest_select_auth("profiles", access_token, filters={"user_id": f"eq.{user_id}"})
-            if results:
-                print(f"DEBUG get_profile_by_user_id (auth): found profile for {user_id}")
-                return results[0]
-        else:
-            # Fallback to anon (might fail with RLS)
-            results = rest_select("profiles", filters={"user_id": f"eq.{user_id}"})
-            if results:
-                print(f"DEBUG get_profile_by_user_id (anon): found profile for {user_id}")
-                return results[0]
-        
-        print(f"DEBUG get_profile_by_user_id: no profile found for {user_id}")
-    except Exception as e:
-        print(f"DEBUG get_profile_by_user_id: error = {e}")
-    
+    """Get profile by user_id - uses auth token if provided. Cached for 5 minutes."""
+    cache_key = f"profile:{user_id}"
+
+    if access_token:
+        results = rest_select_auth("profiles", access_token, filters={"user_id": f"eq.{user_id}"},
+                                    columns="id,user_id,name,avatar_url,bio,phone,show_phone,created_at")
+    else:
+        results = rest_select("profiles", filters={"user_id": f"eq.{user_id}"},
+                               columns="id,user_id,name,avatar_url,bio,phone,show_phone,created_at")
+
+    if results:
+        profile = results[0]
+        cache_set(cache_key, profile, ttl=300)
+        return profile
+
     return None
 
 

@@ -7,22 +7,26 @@ def listing_card(listing, emoji=None, index=0) -> str:
     """Generate listing card HTML - consolidated from all locations"""
     if not listing:
         return ""
-    
+
     title = listing.get('title', 'Untitled')
     price = listing.get('price', 0)
     condition = listing.get('condition', 'N/A')
     category = listing.get('category', 'Other')
     listing_id = listing.get('id', '')
-    
-    # Use category emoji if not provided
+
+    image_urls = listing.get('image_urls') or []
+    image_url = image_urls[0] if isinstance(image_urls, list) and image_urls else None
+
     if emoji is None:
         category_icons = {"Textbooks": "📚", "Electronics": "💻", "Furniture": "🪑", "Monitors": "🖥️", "Other": "📦"}
         emoji = category_icons.get(category, emojis[index % len(emojis)])
-    
+
+    image_html = f'<img src="{image_url}" class="w-full h-48 object-cover rounded-t-lg" alt="{title}">' if image_url else f'<div class="text-4xl mb-2 p-4 pb-0">{emoji}</div>'
+
     return f'''
-    <a href="/listings/{listing_id}" class="block bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow">
+    <a href="/listings/{listing_id}" class="block bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+        {image_html}
         <div class="p-4">
-            <div class="text-4xl mb-2">{emoji}</div>
             <h3 class="text-lg font-semibold text-gray-900 truncate">{title}</h3>
             <p class="text-emerald-600 font-bold text-xl mt-1">€{price}</p>
             <div class="flex items-center mt-2 text-sm text-gray-500">
