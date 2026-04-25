@@ -1,15 +1,22 @@
 # Authentication utilities
 from typing import Optional
 from fastapi import Request, HTTPException, status
-from lib.supabase import get_user_via_rest, SUPABASE_ANON_KEY, AUTH_URL
+from lib.supabase import get_user_via_rest_async, SUPABASE_ANON_KEY, AUTH_URL, rest_select_async
 import httpx
+import time
+import threading
+
+
+_user_cache: dict = {}
+_user_cache_lock = threading.Lock()
+_USER_CACHE_TTL = 60
 
 
 def get_current_user_via_rest(access_token: str) -> Optional[dict]:
-    """Get current user using REST API"""
+    """Get current user using REST API (sync - for non-async contexts only)."""
     if not access_token:
         return None
-    
+
     headers = {
         "apikey": SUPABASE_ANON_KEY,
         "Authorization": f"Bearer {access_token}",
@@ -20,28 +27,47 @@ def get_current_user_via_rest(access_token: str) -> Optional[dict]:
             return response.json()
     except Exception as e:
         print(f"get_current_user error: {e}")
-    
+
     return None
 
 
 async def get_current_user(request: Request) -> Optional[dict]:
-    """Get current user from request cookies - with request-level caching."""
-    # Check if already cached on this request
+    """Get current user from request cookies - with cross-request caching and profile enrichment."""
     if hasattr(request.state, "_cached_user"):
         return request.state._cached_user
-    
+
     access_token = request.cookies.get("sb-access-token")
-    refresh_token = request.cookies.get("sb-refresh-token")
-    
     if not access_token:
         return None
-    
-    user = get_current_user_via_rest(access_token)
-    
-    # Cache for this request lifetime
+
+    now = time.time()
+    with _user_cache_lock:
+        cached = _user_cache.get(access_token)
+        if cached and cached["expires"] > now:
+            user = cached["user"]
+            request.state._cached_user = user
+            return user
+
+    user = await get_user_via_rest_async(access_token)
+
     if user:
+        user_id = user.get("id", "")
+        if user_id:
+            profile_results = await rest_select_async("profiles", filters={"user_id": f"eq.{user_id}"}, columns="name,avatar_url")
+            if profile_results:
+                profile = profile_results[0]
+                user["name"] = profile.get("name") or user.get("email", "").split("@")[0]
+                user["avatar_url"] = profile.get("avatar_url")
+            else:
+                user["name"] = user.get("email", "").split("@")[0] if "@" in user.get("email", "") else "User"
+                user["avatar_url"] = None
         request.state._cached_user = user
-    
+        with _user_cache_lock:
+            _user_cache[access_token] = {"user": user, "expires": now + _USER_CACHE_TTL}
+            expired = [k for k, v in _user_cache.items() if v["expires"] <= now]
+            for k in expired:
+                del _user_cache[k]
+
     return user
 
 

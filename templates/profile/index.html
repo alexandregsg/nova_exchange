@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name | e }} - Nova Exchange{% endblock %}
+{% block content %}
+<div class="min-h-screen bg-gradient-to-b from-emerald-50/50 to-white">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <!-- Profile Header -->
+        <div class="bg-white rounded-lg shadow-lg border border-gray-100 mb-8">
+            <div class="p-6">
+                <div class="flex flex-col sm:flex-row items-start gap-6">
+                    <!-- Avatar -->
+                    <div class="relative group shrink-0">
+                        <div class="h-20 w-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center overflow-hidden">
+                            {% if avatar_url %}
+                            <img src="{{ avatar_url | e }}" alt="{{ display_name | e }}" class="h-20 w-20 rounded-full object-cover" />
+                            {% else %}
+                            <span class="text-3xl font-bold text-white">{{ display_name[0].upper() if display_name else "U" }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <!-- Info -->
+                    <div class="flex-1 min-w-0">
+                        {% if is_own_profile and is_editing %}
+                        <form action="/profile/edit" method="POST" enctype="multipart/form-data" class="space-y-3">
+                            <div class="flex flex-col items-center mb-4">
+                                <label class="block text-xs text-gray-500 mb-1">Profile Photo</label>
+                                <input type="file" name="avatar" accept="image/*" class="text-sm" />
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Name</label>
+                                <input type="text" name="name" value="{{ name | e }}" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Bio</label>
+                                <textarea name="bio" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-md">{{ bio | e }}</textarea>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Phone number</label>
+                                <input type="tel" name="phone" value="{{ phone | e }}" placeholder="+351 912 345 678" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" name="show_phone" {% if show_phone %}checked{% endif %} class="h-4 w-4" />
+                                <label class="text-xs">Allow buyers to see my phone number on my listings</label>
+                            </div>
+                            <div class="flex gap-2">
+                                <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded-md text-sm">Save</button>
+                                <a href="/profile/{{ user_id }}" class="px-4 py-2 text-gray-500 text-sm">Cancel</a>
+                            </div>
+                        </form>
+                        {% else %}
+                        <div>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <h1 class="text-2xl font-bold">{{ display_name | e }}</h1>
+                                {% if is_own_profile %}
+                                <a href="/profile/{{ user_id }}?edit=1" class="text-gray-500 text-sm hover:text-emerald-600">Edit</a>
+                                {% endif %}
+                            </div>
+                            {% if bio %}
+                            <p class="text-sm text-gray-500 mt-1">{{ bio | e }}</p>
+                            {% endif %}
+                            <div class="flex items-center gap-4 mt-3 flex-wrap">
+                                <div class="flex items-center gap-1.5 text-sm text-gray-500">
+                                    <span>&#128197;</span>Joined {{ join_date }}
+                                </div>
+                                {% if review_count > 0 %}
+                                <div class="flex items-center gap-1.5">
+                                    {% for i in range(1, 6) %}
+                                    <span class="h-4 w-4 {% if i <= avg_rating_val | round(0, 'floor') | int %}text-yellow-400{% else %}text-gray-300{% endif %}">&star;</span>
+                                    {% endfor %}
+                                    <span class="text-sm text-gray-500">{{ avg_rating_val }} ({{ review_count }} reviews)</span>
+                                </div>
+                                {% endif %}
+                                <div class="flex items-center gap-1.5 text-sm text-gray-500">
+                                    <span>&#128230;</span>{{ listings | length }} listing{% if listings | length != 1 %}s{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Listings Grid -->
+        <div class="mb-8">
+            <h2 class="text-xl font-bold mb-4">Listings</h2>
+            {% if listings and listings | length > 0 %}
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {% for listing in listings %}
+                {% set lid = listing.get("id", "") %}
+                {% set ltitle = listing.get("title", "Untitled") %}
+                {% set lprice = listing.get("price", 0) %}
+                {% set lcondition = listing.get("condition", "") %}
+                {% set lcategory = listing.get("category", "") %}
+                {% set limage_urls = listing.get("image_urls", []) if listing.get("image_urls") else [] %}
+                {% set limage_url = limage_urls[0] if limage_urls else None %}
+                {% set emojis = ["&#128218;", "&#128187;", "&#129681;", "&#128241;", "&#127928;", "&#128690;"] %}
+                {% set category_icons = {"Textbooks": "&#128218;", "Electronics": "&#128187;", "Furniture": "&#129681;", "Monitors": "&#128187;", "Other": "&#128230;"} %}
+                {% set emoji = category_icons.get(lcategory, emojis[loop.index0 % emojis | length]) %}
+                {% set condition_colors = {"New": "bg-green-100 text-green-800", "Like New": "bg-green-100 text-green-800", "Good": "bg-yellow-100 text-yellow-800", "Fair": "bg-gray-100 text-gray-800", "Poor": "bg-red-100 text-red-800"} %}
+                {% set condition_class = condition_colors.get(lcondition, "bg-gray-100 text-gray-800") %}
+                <a href="/listings/{{ lid }}" class="block bg-white rounded-lg shadow-sm hover:shadow-md overflow-hidden card-hover">
+                    <div class="relative h-40 bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center">
+                        {% if limage_url %}
+                        <img src="{{ limage_url | e }}" alt="{{ ltitle | e }}" class="w-full h-full object-contain" loading="lazy" />
+                        {% else %}
+                        <span class="text-5xl">{{ emoji | safe }}</span>
+                        {% endif %}
+                        <div class="absolute top-2 left-2">
+                            <span class="{{ condition_class }} text-xs px-2 py-0.5 rounded">{{ lcondition | e }}</span>
+                        </div>
+                    </div>
+                    <div class="p-3">
+                        <h3 class="font-semibold text-sm text-gray-900 truncate">{{ ltitle | e }}</h3>
+                        <p class="text-xs text-gray-500">{{ lcategory | e }}</p>
+                    </div>
+                    <div class="px-3 pb-3">
+                        <span class="text-lg font-bold text-emerald-600">&euro;{{ lprice }}</span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="bg-white rounded-lg shadow border border-gray-100 p-12 text-center">
+                <p class="text-gray-500">No listings yet.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Purchases (own profile only) -->
+        {% if is_own_profile %}
+        <div class="mb-8">
+            <h2 class="text-xl font-bold mb-4">My Purchases</h2>
+            {% if purchases and purchases | length > 0 %}
+            <div class="space-y-2">
+                {% for purchase in purchases %}
+                <div class="block bg-white rounded-lg shadow-sm hover:shadow-md p-3">
+                    <div class="flex items-center gap-3">
+                        <div class="h-12 w-12 rounded-lg bg-emerald-100 flex items-center justify-center overflow-hidden">
+                            {% if purchase.listing_image %}
+                            <img src="{{ purchase.listing_image | e }}" class="w-full h-full object-cover" loading="lazy" />
+                            {% else %}
+                            <span class="text-2xl">&#128230;</span>
+                            {% endif %}
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="font-semibold text-sm">{{ purchase.listing_title | e }}</h3>
+                            <p class="text-xs text-gray-500">Purchased: {{ purchase.created_at[:10] if purchase.created_at else "" }}</p>
+                        </div>
+                        <div>
+                            <span class="text-lg font-bold text-emerald-600">&euro;{{ purchase.listing_price }}</span>
+                            {% if purchase.already_reviewed %}
+                            <span class="block w-full text-xs text-gray-400 mt-1">Reviewed &check;</span>
+                            {% else %}
+                            <button type="button" onclick="rateSellerFromPurchase('{{ purchase.seller_id }}', '{{ purchase.transaction_id }}')" class="block w-full text-xs text-emerald-600 hover:underline mt-1">Rate Seller</button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="bg-white rounded-lg shadow border border-gray-100 p-8 text-center">
+                <p class="text-gray-500">No purchases yet</p>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Reviews -->
+        <div class="bg-white rounded-lg shadow-lg border border-gray-100">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold">Reviews</h2>
+                    {% if review_count > 0 %}
+                    <div class="flex items-center gap-1.5">
+                        {% for i in range(1, 6) %}
+                        <span class="h-5 w-5 {% if i <= avg_rating_val | round(0, 'floor') | int %}text-yellow-400{% else %}text-gray-300{% endif %}">&star;</span>
+                        {% endfor %}
+                        <span class="text-sm text-gray-500">{{ avg_rating_val }} ({{ review_count }} reviews)</span>
+                    </div>
+                    {% endif %}
+                </div>
+                {% if reviews and reviews | length > 0 %}
+                <div class="space-y-4">
+                    {% for review in reviews %}
+                    {% set reviewer_name = review.get("reviewer_name", "Anonymous") %}
+                    {% set rating_val = review.get("rating", 0) %}
+                    {% set comment = review.get("comment", "") %}
+                    {% set created = review.get("created_at", "")[:10] if review.get("created_at") else "" %}
+                    <div class="border-b border-gray-200 pb-4 last:border-0">
+                        <div class="flex items-center justify-between mb-1">
+                            <div class="flex items-center gap-2">
+                                <div class="h-7 w-7 rounded-full bg-emerald-100 flex items-center justify-center">
+                                    <span class="text-emerald-600 text-sm">{{ reviewer_name[0].upper() }}</span>
+                                </div>
+                                <span class="text-sm font-medium">{{ reviewer_name | e }}</span>
+                            </div>
+                            <span class="text-xs text-gray-500">{{ created }}</span>
+                        </div>
+                        <div class="ml-9">
+                            <div class="text-yellow-400">
+                                {% for i in range(1, 6) %}
+                                <span class="{% if i <= rating_val %}text-yellow-400{% else %}text-gray-300{% endif %}">&star;</span>
+                                {% endfor %}
+                            </div>
+                            {% if comment %}
+                            <p class="text-sm text-gray-500 mt-1">{{ comment | e }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-sm text-gray-500 text-center py-6">No reviews yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Rate Seller Modal -->
+<div id="rate-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold">Rate Seller</h3>
+            <button type="button" onclick="closeRateModal()" class="text-gray-500 text-2xl">&times;</button>
+        </div>
+        <p class="text-gray-600 mb-4">How would you rate this seller?</p>
+        <div class="flex gap-2 mb-4 justify-center" id="rating-stars">
+            <button type="button" onclick="setRating(1)" class="text-3xl hover:scale-110">&star;</button>
+            <button type="button" onclick="setRating(2)" class="text-3xl hover:scale-110">&star;</button>
+            <button type="button" onclick="setRating(3)" class="text-3xl hover:scale-110">&star;</button>
+            <button type="button" onclick="setRating(4)" class="text-3xl hover:scale-110">&star;</button>
+            <button type="button" onclick="setRating(5)" class="text-3xl hover:scale-110">&star;</button>
+        </div>
+        <input type="hidden" id="rating-value" value="0">
+        <input type="hidden" id="rating-seller-id" value="">
+        <input type="hidden" id="rating-transaction-id" value="">
+        <textarea id="rating-comment" placeholder="Optional comment..." class="w-full px-3 py-2 border border-gray-300 rounded-md mb-4" rows="3"></textarea>
+        <button type="button" onclick="submitRating()" class="w-full bg-emerald-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-emerald-700">
+            Submit Review
+        </button>
+        <p id="rate-error" class="text-red-500 text-sm mt-2 hidden"></p>
+    </div>
+</div>
+
+<script>
+var currentRating = 0;
+
+window.rateSellerFromPurchase = function(sellerId, transactionId) {
+    document.getElementById("rating-seller-id").value = sellerId;
+    document.getElementById("rating-transaction-id").value = transactionId || "";
+    currentRating = 0;
+    document.getElementById("rating-value").value = "0";
+    document.getElementById("rating-comment").value = "";
+    updateStarDisplay();
+    document.getElementById("rate-modal").classList.remove("hidden");
+};
+
+function closeRateModal() {
+    document.getElementById("rate-modal").classList.add("hidden");
+}
+
+function setRating(rating) {
+    currentRating = rating;
+    document.getElementById("rating-value").value = rating;
+    updateStarDisplay();
+}
+
+function updateStarDisplay() {
+    var stars = document.querySelectorAll("#rating-stars button");
+    stars.forEach(function(star, idx) {
+        star.className = idx < currentRating ? "text-3xl text-yellow-400" : "text-3xl text-gray-300";
+    });
+}
+
+async function submitRating() {
+    var rating = document.getElementById("rating-value").value;
+    var sellerId = document.getElementById("rating-seller-id").value;
+    var comment = document.getElementById("rating-comment").value;
+    if (!rating || rating === "0") { alert("Please select a rating"); return; }
+    var formData = new FormData();
+    var transactionId = document.getElementById("rating-transaction-id").value;
+    formData.append("seller_id", sellerId);
+    formData.append("rating", rating);
+    if (comment) formData.append("comment", comment);
+    if (transactionId) formData.append("transaction_id", transactionId);
+    try {
+        var response = await fetch("/reviews", { method: "POST", body: formData });
+        if (response.ok) { window.location.reload(); }
+        else { var errorEl = document.getElementById("rate-error"); errorEl.textContent = "Error submitting review"; errorEl.classList.remove("hidden"); }
+    } catch (err) { var errorEl = document.getElementById("rate-error"); errorEl.textContent = "Error: " + err.message; errorEl.classList.remove("hidden"); }
+}
+</script>
+{% endblock %}

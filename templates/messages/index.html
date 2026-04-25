@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Messages - Nova Exchange{% endblock %}
+{% block content %}
+<div class="max-w-7xl mx-auto px-0 sm:px-0 lg:px-0 py-0">
+    <div class="flex h-[calc(100vh-64px)] bg-white shadow-lg rounded-lg overflow-hidden ml-4 mr-4 mt-4">
+        <!-- Left Sidebar -->
+        <div class="w-80 flex-shrink-0 border-r bg-gray-50 flex flex-col">
+            <!-- Tabs -->
+            <div class="flex border-b bg-white">
+                <a href="?tab=buying" class="flex-1 py-3 text-center font-medium text-sm {% if active_tab == 'buying' %}text-emerald-600 border-b-2 border-emerald-600{% else %}text-gray-500 hover:text-gray-700{% endif %} transition-colors">
+                    Buying ({{ buying_convs | length }})
+                </a>
+                <a href="?tab=selling" class="flex-1 py-3 text-center font-medium text-sm {% if active_tab == 'selling' %}text-emerald-600 border-b-2 border-emerald-600{% else %}text-gray-500 hover:text-gray-700{% endif %} transition-colors">
+                    Selling ({{ selling_convs | length }})
+                </a>
+            </div>
+            <!-- Conversation List -->
+            <div class="flex-1 overflow-y-auto">
+                {% if current_convs and current_convs | length > 0 %}
+                    {% for conv in current_convs %}
+                    {% set conv_id = conv.get("id", "") %}
+                    {% set avatar_url = conv.get("other_user_avatar_url") or "" %}
+                    {% set name = conv.get("other_user_name", "User") %}
+                    {% set listing_title = conv.get("listing_title", "Listing") %}
+                    {% set last_msg = conv.get("last_message", "") %}
+                    {% set unread = conv.get("unread_count", 0) %}
+                    {% set thumb = conv.get("listing_thumbnail") %}
+                    {% set selected_class = "bg-gray-100" if selected_chat == conv_id else "hover:bg-gray-50" %}
+                    <a href="?tab={{ active_tab }}&chat={{ conv_id }}" class="flex items-center p-3 border-b {{ selected_class }} transition-colors">
+                        {% if avatar_url %}
+                        <img src="{{ avatar_url | e }}" class="w-12 h-12 rounded-full object-cover bg-gray-200" loading="lazy">
+                        {% else %}
+                        <div class="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-semibold">{{ name[0].upper() if name else "?" }}</div>
+                        {% endif %}
+                        <div class="flex-1 min-w-0 ml-3">
+                            <div class="flex justify-between items-center">
+                                <span class="font-medium text-gray-900 truncate">{{ name | e }}</span>
+                                {% if unread > 0 %}
+                                <span class="w-2 h-2 bg-emerald-500 rounded-full flex-shrink-0"></span>
+                                {% endif %}
+                            </div>
+                            <p class="text-xs text-gray-500 truncate">{{ listing_title | e }}</p>
+                            <p class="text-sm text-gray-600 truncate">{{ last_msg | e if last_msg else "No messages yet" }}</p>
+                        </div>
+                        {% if thumb %}
+                        <img src="{{ thumb | e }}" class="w-12 h-12 rounded object-cover ml-2 flex-shrink-0" loading="lazy">
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                {% else %}
+                <div class="p-4 text-center text-gray-500">
+                    <p class="mb-2">No conversations yet</p>
+                    <a href="/browse" class="text-emerald-600 hover:text-emerald-700 text-sm">Browse listings</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        <!-- Right Chat Area -->
+        <div class="flex-1 bg-gray-50">
+            {% if selected_conv %}
+            <div class="flex flex-col h-full">
+                <div class="p-4 border-b bg-white shadow-sm">
+                    <div class="flex items-center gap-3">
+                        <div class="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                            <span class="text-emerald-600 font-semibold">{{ other_name[0].upper() if other_name else "?" }}</span>
+                        </div>
+                        <div class="flex-1">
+                            <h2 class="text-lg font-semibold text-gray-900">
+                                <a href="/listings/{{ selected_conv.listing_id }}" class="text-gray-900 hover:text-emerald-700 hover:underline">{{ selected_conv.listing_title | e }}</a>
+                            </h2>
+                            <div class="text-sm text-gray-500">Chat with {{ other_name | e }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto p-4" id="chat-messages">
+                    {% if messages and messages | length > 0 %}
+                        {% for msg in messages %}
+                        {% set is_mine = msg.sender_id == user_id %}
+                        {% set msg_class = "ml-auto bg-emerald-100" if is_mine else "mr-auto bg-white" %}
+                        {% set align = "justify-end" if is_mine else "justify-start" %}
+                        <div class="flex {{ align }} mb-3">
+                            <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg {{ msg_class }} shadow-sm">
+                                <p class="text-gray-800">{{ msg.content | e }}</p>
+                                <p class="text-xs text-gray-400 mt-1 text-right">{{ msg.created_at[:16] if msg.created_at else "" }}</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-gray-400 text-center py-8">No messages yet. Start the conversation!</p>
+                    {% endif %}
+                </div>
+                <form action="/api/messages/{{ selected_conv.id }}" method="POST" class="p-4 border-t bg-white">
+                    <input type="hidden" name="user_id" value="{{ user_id }}">
+                    <input type="hidden" name="active_tab" value="{{ active_tab }}">
+                    <div class="flex gap-2">
+                        <input type="text" name="content" placeholder="Type a message..." class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500" required>
+                        <button type="submit" class="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">Send</button>
+                    </div>
+                </form>
+            </div>
+            {% else %}
+            <div class="flex items-center justify-center h-full text-gray-400">
+                <div class="text-center">
+                    <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                    </svg>
+                    <p class="text-lg">Select a conversation to start chatting</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

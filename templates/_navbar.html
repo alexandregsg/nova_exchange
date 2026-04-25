@@ -1,0 +1,34 @@
+<nav class="bg-white border-b border-gray-200">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex justify-between h-16">
+      <div class="flex items-center">
+        <a href="/" class="text-xl font-bold text-emerald-600">Nova Exchange</a>
+        <div class="hidden sm:ml-8 sm:flex sm:space-x-8">
+          <a href="/browse" class="text-gray-900 hover:text-emerald-600 px-3 py-2 text-sm font-medium">Browse</a>
+          {% if user %}
+            <a href="/listings/new" class="text-gray-900 hover:text-emerald-600 px-3 py-2 text-sm font-medium">Sell</a>
+          {% else %}
+            <a href="/auth/login" class="text-gray-900 hover:text-emerald-600 px-3 py-2 text-sm font-medium">Sell</a>
+          {% endif %}
+        </div>
+      </div>
+      <div class="flex items-center space-x-4">
+        <a href="/messages" class="text-gray-500 hover:text-emerald-600">Messages</a>
+        {% if user %}
+          <a href="/profile/{{ user.id }}" class="text-gray-500 hover:text-emerald-600 flex items-center gap-2">
+            {% if user.avatar_url %}
+              <img src="{{ user.avatar_url | e }}" class="h-8 w-8 rounded-full object-cover" loading="lazy">
+            {% endif %}
+            {{ user.name | e }}
+          </a>
+          <form action="/auth/logout" method="POST" style="display:inline">
+            <button type="submit" class="text-gray-500 hover:text-emerald-600 text-sm">Logout</button>
+          </form>
+        {% else %}
+          <a href="/auth/login" class="text-gray-500 hover:text-emerald-600 text-sm">Login</a>
+          <a href="/auth/signup" class="bg-emerald-600 text-white px-4 py-2 rounded-md text-sm hover:bg-emerald-700">Sign Up</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</nav>

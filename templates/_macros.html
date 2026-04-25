@@ -1,0 +1,99 @@
+{% macro listing_card(listing, index=0) %}
+{% set title = listing.get('title', 'Untitled') %}
+{% set price = listing.get('price', 0) %}
+{% set condition = listing.get('condition', 'N/A') %}
+{% set category = listing.get('category', 'Other') %}
+{% set listing_id = listing.get('id', '') %}
+{% set image_urls = listing.get('image_urls') or [] %}
+{% set image_url = image_urls[0] if image_urls is iterable and image_urls | length > 0 else None %}
+{% set emojis = ["📘", "🖥️", "🪑", "📱", "🎸", "🚲"] %}
+{% set category_icons = {"Textbooks": "📚", "Electronics": "💻", "Furniture": "🪑", "Monitors": "🖥️", "Other": "📦"} %}
+{% set emoji = category_icons.get(category, emojis[index % emojis | length]) %}
+    <a href="/listings/{{ listing_id }}" class="block bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden card-hover">
+        {% if image_url %}
+            <img src="{{ image_url }}?width=400&height=300&resize=cover" class="w-full h-48 object-cover rounded-t-lg" alt="{{ title | e }}" loading="lazy">
+        {% else %}
+            <div class="text-4xl mb-2 p-4 pb-0">{{ emoji }}</div>
+        {% endif %}
+        <div class="p-4">
+            <h3 class="text-lg font-semibold text-gray-900 truncate">{{ title | e }}</h3>
+            <p class="text-emerald-600 font-bold text-xl mt-1">&euro;{{ price }}</p>
+            <div class="flex items-center mt-2 text-sm text-gray-500">
+                <span class="bg-gray-100 px-2 py-1 rounded text-xs">{{ condition | e }}</span>
+                <span class="ml-2 text-xs">{{ category | e }}</span>
+            </div>
+        </div>
+    </a>
+{% endmacro %}
+
+{% macro conversation_card(conv, user_id, active_tab, selected_chat) %}
+{% set conv_id = conv.get("id", "") %}
+{% set avatar_url = conv.get("other_user_avatar_url") or "" %}
+{% set name = conv.get("other_user_name", "User") %}
+{% set listing_title = conv.get("listing_title", "Listing") %}
+{% set last_msg = conv.get("last_message", "") %}
+{% set unread = conv.get("unread_count", 0) %}
+{% set thumb = conv.get("listing_thumbnail") %}
+{% set selected_class = "bg-gray-100" if selected_chat == conv_id else "hover:bg-gray-50" %}
+    <a href="?tab={{ active_tab }}&chat={{ conv_id }}" class="flex items-center p-3 border-b {{ selected_class }} transition-colors">
+        {% if avatar_url %}
+            <img src="{{ avatar_url | e }}" class="w-12 h-12 rounded-full object-cover bg-gray-200" loading="lazy">
+        {% else %}
+            <div class="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-semibold">{{ name[0].upper() if name else "?" }}</div>
+        {% endif %}
+        <div class="flex-1 min-w-0 ml-3">
+            <div class="flex justify-between items-center">
+                <span class="font-medium text-gray-900 truncate">{{ name | e }}</span>
+                {% if unread > 0 %}
+                <span class="w-2 h-2 bg-emerald-500 rounded-full flex-shrink-0"></span>
+                {% endif %}
+            </div>
+            <p class="text-xs text-gray-500 truncate">{{ listing_title | e }}</p>
+            <p class="text-sm text-gray-600 truncate">{{ last_msg | e if last_msg else "No messages yet" }}</p>
+        </div>
+        {% if thumb %}
+            <img src="{{ thumb | e }}" class="w-12 h-12 rounded object-cover ml-2 flex-shrink-0" loading="lazy">
+        {% endif %}
+    </a>
+{% endmacro %}
+
+{% macro message_bubble(content, created_at, is_mine=True) %}
+{% set msg_class = "ml-auto bg-emerald-100" if is_mine else "mr-auto bg-white" %}
+{% set align = "justify-end" if is_mine else "justify-start" %}
+    <div class="flex {{ align }} mb-3">
+        <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg {{ msg_class }} shadow-sm">
+            <p class="text-gray-800">{{ content | e }}</p>
+            <p class="text-xs text-gray-400 mt-1 text-right">{{ created_at | e }}</p>
+        </div>
+    </div>
+{% endmacro %}
+
+{% macro empty_state(title, message, icon="📭", action_link=None, action_text=None) %}
+    <div class="text-center py-12">
+        <div class="text-6xl mb-4">{{ icon }}</div>
+        <h3 class="text-xl font-semibold text-gray-900 mb-2">{{ title | e }}</h3>
+        <p class="text-gray-500 mb-4">{{ message | e }}</p>
+        {% if action_link and action_text %}
+        <a href="{{ action_link }}" class="mt-4 inline-block bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700">
+            {{ action_text | e }}
+        </a>
+        {% endif %}
+    </div>
+{% endmacro %}
+
+{% macro star_rating_display(rating, size="md") %}
+{% set size_class = "h-5 w-5" if size == "lg" else "h-4 w-4" %}
+    <div class="flex gap-0.5">
+        {% for i in range(1, 6) %}
+        <span class="{{ size_class }} {% if i <= rating %}text-yellow-400{% else %}text-gray-300{% endif %}">&star;</span>
+        {% endfor %}
+    </div>
+{% endmacro %}
+
+{% macro loading_spinner(size="md") %}
+{% set size_class = {"sm": "h-4 w-4", "lg": "h-12 w-12"}.get(size, "h-8 w-8") %}
+{% set animate = "animate-spin" if size != "sm" else "" %}
+    <div class="flex items-center justify-center">
+        <div class="{{ size_class }} border-2 border-emerald-200 border-t-emerald-600 rounded-full {{ animate }}"></div>
+    </div>
+{% endmacro %}

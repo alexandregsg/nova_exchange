@@ -1,0 +1,26 @@
+/* Toast animations */
+.toast-enter { animation: slideIn 0.3s ease-out; }
+.toast-exit { animation: slideOut 0.3s ease-in; }
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+@keyframes slideOut {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(100%); opacity: 0; }
+}
+/* Back to top */
+.back-to-top { transition: all 0.2s ease; }
+.back-to-top:hover { transform: translateY(-2px); }
+/* Card transitions */
+.card-hover { transition: all 0.2s ease; }
+.card-hover:hover { transform: translateY(-2px); }
+/* Button transitions */
+.btn-transition { transition: all 0.15s ease; }
+.btn-transition:active { transform: scale(0.98); }
+/* Modal fade */
+.modal-fade { animation: fadeIn 0.2s ease-out; }
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}

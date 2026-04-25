@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}{{ title | e }} - Nova Exchange{% endblock %}
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div>
+            {% if image_urls and image_urls | length > 0 %}
+            <div class="relative">
+                <div class="bg-gray-200 rounded-lg overflow-hidden" style="aspect-ratio: 4/3">
+                    <img src="{{ image_urls[0] | e }}" class="w-full h-full object-contain" id="gallery-image" loading="lazy">
+                </div>
+                <button id="nav-left" onclick="changeImage(-1)" class="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-2 rounded-full hover:bg-black/70" style="visibility: hidden">&larr;</button>
+                <button id="nav-right" onclick="changeImage(1)" class="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-2 rounded-full hover:bg-black/70">&rarr;</button>
+                <span id="image-counter" class="absolute bottom-2 right-2 bg-black/50 text-white px-2 py-1 rounded text-sm">1 / {{ image_urls | length }}</span>
+            </div>
+            {% if image_urls | length > 1 %}
+            <div class="flex gap-2 mt-2 overflow-x-auto">
+                {% for img_url in image_urls %}
+                <img src="{{ img_url | e }}" class="w-16 h-16 rounded object-cover cursor-pointer border-2 {% if loop.first %}border-emerald-500{% else %}border-transparent{% endif %} hover:border-emerald-300" onclick="changeImage({{ loop.index0 }}); setCurrentImage({{ loop.index0 }})">
+                {% endfor %}
+            </div>
+            {% endif %}
+            <div id="fullscreen-modal" class="fixed inset-0 bg-black z-50 hidden flex-col items-center justify-center" onclick="closeFullscreen()">
+                <button class="absolute top-4 right-4 text-white text-4xl" onclick="event.stopPropagation(); closeFullscreen()">&times;</button>
+                <button class="absolute left-4 top-1/2 -translate-y-1/2 text-white text-4xl" onclick="event.stopPropagation(); changeImage(-1)">&larr;</button>
+                <img src="" class="max-h-screen max-w-full object-contain" id="fullscreen-image" onclick="event.stopPropagation()">
+                <button class="absolute right-4 top-1/2 -translate-y-1/2 text-white text-4xl" onclick="event.stopPropagation(); changeImage(1)">&rarr;</button>
+            </div>
+            {% else %}
+            <div class="bg-gray-200 rounded-lg flex items-center justify-center" style="aspect-ratio: 4/3">
+                <span class="text-6xl">&#128230;</span>
+            </div>
+            {% endif %}
+        </div>
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">{{ title | e }}</h1>
+            <p class="text-3xl font-bold text-emerald-600 mt-2">&euro;{{ price }}</p>
+            {% if posted_date_formatted %}
+            <p class="text-lg text-gray-600 mt-1"><span class="font-medium">Posted on:</span> {{ posted_date_formatted | e }}</p>
+            {% endif %}
+            <div class="mt-4 flex gap-2 flex-wrap">
+                {% if status_badge %}{{ status_badge | safe }}{% endif %}
+                <span class="bg-gray-100 px-3 py-1 rounded">{{ condition | e }}</span>
+                <span class="bg-gray-100 px-3 py-1 rounded">{{ category | e }}</span>
+            </div>
+            {% if location %}
+            <p class="mt-4 text-gray-600 text-lg"><span class="font-medium">Location:</span> {{ location | e }}</p>
+            {% endif %}
+            <div class="mt-6">
+                <h2 class="text-lg font-semibold text-gray-900">Description</h2>
+                <p class="mt-2 text-gray-600">{{ description | e }}</p>
+            </div>
+            <a href="/profile/{{ seller_id }}" class="block mt-6 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all duration-200">
+                <div class="flex items-center gap-4">
+                    <div class="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {% if seller_avatar_url %}
+                        <img src="{{ seller_avatar_url | e }}" class="h-full w-full object-cover" loading="lazy">
+                        {% else %}
+                        <span class="text-emerald-600 font-semibold text-xl">{{ seller_name[0].upper() if seller_name else "?" }}</span>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <p class="text-lg font-bold text-gray-900">{{ seller_name | e }}</p>
+                        <p class="text-sm text-gray-500">Member since {{ seller_join_date | e }}</p>
+                    </div>
+                </div>
+            </a>
+            {{ edit_button | safe }}
+            {{ contact_button | safe }}
+            {{ show_number_button | safe }}
+        </div>
+    </div>
+</div>
+
+<!-- Mark Sold Modal -->
+<div id="mark-sold-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold">Mark as Sold</h3>
+            <button type="button" onclick="closeMarkSoldModal()" class="text-gray-500 text-2xl">&times;</button>
+        </div>
+        <p class="text-gray-600 mb-4">Select the buyer for this listing:</p>
+        <select id="buyer-select" class="w-full px-3 py-2 border border-gray-300 rounded-md mb-4">
+            <option value="">Loading...</option>
+        </select>
+        <button type="button" onclick="confirmSale()" id="confirm-sale-btn" class="w-full bg-emerald-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-emerald-700">
+            Confirm Sale
+        </button>
+        <p id="mark-sold-error" class="text-red-500 text-sm mt-2 hidden"></p>
+    </div>
+</div>
+
+<script>
+var LISTING_ID = {{ listing_id | tojson }};
+var currentImage = 0;
+var images = {{ image_urls | tojson }};
+var totalImages = images.length;
+
+function updateNav() {
+    document.getElementById('gallery-image').src = images[currentImage];
+    document.getElementById('image-counter').textContent = (currentImage + 1) + ' / ' + totalImages;
+    document.getElementById('nav-left').style.visibility = (currentImage > 0) ? 'visible' : 'hidden';
+    document.getElementById('nav-right').style.visibility = (currentImage < totalImages - 1) ? 'visible' : 'hidden';
+}
+function setCurrentImage(idx) { currentImage = idx; updateNav(); }
+function changeImage(direction) {
+    if (typeof direction === 'number' && direction >= 0 && direction < totalImages) {
+        currentImage = direction;
+    } else if (direction === -1 && currentImage > 0) {
+        currentImage--;
+    } else if (direction === 1 && currentImage < totalImages - 1) {
+        currentImage++;
+    }
+    updateNav();
+}
+function openFullscreen(index) {
+    currentImage = index;
+    document.getElementById('fullscreen-image').src = images[currentImage];
+    document.getElementById('fullscreen-modal').style.display = 'flex';
+}
+function closeFullscreen() {
+    document.getElementById('fullscreen-modal').style.display = 'none';
+}
+updateNav();
+
+function openMarkSoldModal() {
+    var modal = document.getElementById("mark-sold-modal");
+    if (modal) { modal.classList.remove("hidden"); }
+    loadPotentialBuyers();
+}
+function closeMarkSoldModal() {
+    var modal = document.getElementById("mark-sold-modal");
+    if (modal) { modal.classList.add("hidden"); }
+}
+function loadPotentialBuyers() {
+    var select = document.getElementById("buyer-select");
+    if (!select) return;
+    select.innerHTML = '<option value="">Loading...</option>';
+    fetch("/api/listings/" + LISTING_ID + "/potential-buyers").then(function(r) { return r.json(); }).then(function(buyers) {
+        if (!buyers || buyers.length === 0) { select.innerHTML = '<option value="">No potential buyers found</option>'; return; }
+        var html = "";
+        for (var i = 0; i < buyers.length; i++) {
+            var b = buyers[i];
+            html += '<option value="' + b.user_id + '">' + (b.name || "Unknown") + '</option>';
+        }
+        select.innerHTML = html;
+    }).catch(function(err) { select.innerHTML = '<option value="">Error loading buyers</option>'; });
+}
+function confirmSale() {
+    var buyerId = document.getElementById("buyer-select").value;
+    if (!buyerId) { alert("Please select a buyer"); return; }
+    var btn = document.getElementById("confirm-sale-btn");
+    var errorEl = document.getElementById("mark-sold-error");
+    btn.disabled = true; btn.textContent = "Processing...";
+    var formData = new FormData(); formData.append("buyer_id", buyerId);
+    fetch("/api/listings/" + LISTING_ID + "/mark-sold", { method: "POST", body: formData })
+        .then(function(r) { return r.json(); }).then(function(result) {
+            if (result.success) { window.location.reload(); }
+            else { errorEl.textContent = result.error || "Error marking as sold"; errorEl.classList.remove("hidden"); btn.disabled = false; btn.textContent = "Confirm Sale"; }
+        }).catch(function(err) { errorEl.textContent = "Error: " + err.message; errorEl.classList.remove("hidden"); btn.disabled = false; btn.textContent = "Confirm Sale"; });
+}
+async function revealPhoneNumber() {
+    var btnText = document.getElementById('phone-btn-text');
+    var btnNumber = document.getElementById('phone-btn-number');
+    if (!btnText || !btnNumber) return;
+    btnText.textContent = 'Loading...';
+    try {
+        var response = await fetch('/api/listings/' + LISTING_ID + '/phone');
+        var data = await response.json();
+        if (data.phone) {
+            btnText.style.display = 'none';
+            btnNumber.textContent = data.phone;
+            btnNumber.style.display = 'inline';
+            document.getElementById('reveal-phone-btn').onclick = null;
+        } else {
+            btnText.textContent = 'Number not available';
+            document.getElementById('reveal-phone-btn').disabled = true;
+        }
+    } catch (err) {
+        btnText.textContent = 'Error loading number';
+        document.getElementById('reveal-phone-btn').disabled = true;
+    }
+}
+</script>
+{% endblock %}
