@@ -227,11 +227,11 @@
         </div>
         <p class="text-gray-600 mb-4">How would you rate this seller?</p>
         <div class="flex gap-2 mb-4 justify-center" id="rating-stars">
-            <button type="button" onclick="setRating(1)" class="text-3xl hover:scale-110">&star;</button>
-            <button type="button" onclick="setRating(2)" class="text-3xl hover:scale-110">&star;</button>
-            <button type="button" onclick="setRating(3)" class="text-3xl hover:scale-110">&star;</button>
-            <button type="button" onclick="setRating(4)" class="text-3xl hover:scale-110">&star;</button>
-            <button type="button" onclick="setRating(5)" class="text-3xl hover:scale-110">&star;</button>
+            <button type="button" onclick="setProfileRating(1)" class="text-3xl hover:scale-110">&star;</button>
+            <button type="button" onclick="setProfileRating(2)" class="text-3xl hover:scale-110">&star;</button>
+            <button type="button" onclick="setProfileRating(3)" class="text-3xl hover:scale-110">&star;</button>
+            <button type="button" onclick="setProfileRating(4)" class="text-3xl hover:scale-110">&star;</button>
+            <button type="button" onclick="setProfileRating(5)" class="text-3xl hover:scale-110">&star;</button>
         </div>
         <input type="hidden" id="rating-value" value="0">
         <input type="hidden" id="rating-seller-id" value="">
@@ -253,7 +253,7 @@ window.rateSellerFromPurchase = function(sellerId, transactionId) {
     currentRating = 0;
     document.getElementById("rating-value").value = "0";
     document.getElementById("rating-comment").value = "";
-    updateStarDisplay();
+    updateProfileStarDisplay();
     document.getElementById("rate-modal").classList.remove("hidden");
 };
 
@@ -261,13 +261,13 @@ function closeRateModal() {
     document.getElementById("rate-modal").classList.add("hidden");
 }
 
-function setRating(rating) {
+function setProfileRating(rating) {
     currentRating = rating;
     document.getElementById("rating-value").value = rating;
-    updateStarDisplay();
+    updateProfileStarDisplay();
 }
 
-function updateStarDisplay() {
+function updateProfileStarDisplay() {
     var stars = document.querySelectorAll("#rating-stars button");
     stars.forEach(function(star, idx) {
         star.className = idx < currentRating ? "text-3xl text-yellow-400" : "text-3xl text-gray-300";
