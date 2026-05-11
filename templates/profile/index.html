@@ -270,7 +270,13 @@ function setProfileRating(rating) {
 function updateProfileStarDisplay() {
     var stars = document.querySelectorAll("#rating-stars button");
     stars.forEach(function(star, idx) {
-        star.className = idx < currentRating ? "text-3xl text-yellow-400" : "text-3xl text-gray-300";
+        if (idx < currentRating) {
+            star.style.color = "#facc15"; // yellow-400
+            star.className = "text-3xl hover:scale-110";
+        } else {
+            star.style.color = "#d1d5db"; // gray-300
+            star.className = "text-3xl hover:scale-110";
+        }
     });
 }
 
