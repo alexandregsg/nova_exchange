@@ -63,7 +63,7 @@
                     {% endfor %}
                 {% else %}
                     {% from '_macros.html' import empty_state %}
-                    {{ empty_state("No listings found", "Try different filters or create a listing", "&#128230;", "/listings/new", "Create Listing") }}
+                    {{ empty_state("No listings found", "Try different filters or create a listing", "📦", "/listings/new", "Create Listing") }}
                 {% endif %}
             </div>
             {% if total_pages > 1 %}

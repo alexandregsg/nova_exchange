@@ -59,7 +59,7 @@
                             {% endif %}
                             <div class="flex items-center gap-4 mt-3 flex-wrap">
                                 <div class="flex items-center gap-1.5 text-sm text-gray-500">
-                                    <span>&#128197;</span>Joined {{ join_date }}
+                                    <span>📅</span>Joined {{ join_date }}
                                 </div>
                                 {% if review_count > 0 %}
                                 <div class="flex items-center gap-1.5">
@@ -70,7 +70,7 @@
                                 </div>
                                 {% endif %}
                                 <div class="flex items-center gap-1.5 text-sm text-gray-500">
-                                    <span>&#128230;</span>{{ listings | length }} listing{% if listings | length != 1 %}s{% endif %}
+                                    <span>📦</span>{{ listings | length }} listing{% if listings | length != 1 %}s{% endif %}
                                 </div>
                             </div>
                         </div>
@@ -93,8 +93,8 @@
                 {% set lcategory = listing.get("category", "") %}
                 {% set limage_urls = listing.get("image_urls", []) if listing.get("image_urls") else [] %}
                 {% set limage_url = limage_urls[0] if limage_urls else None %}
-                {% set emojis = ["&#128218;", "&#128187;", "&#129681;", "&#128241;", "&#127928;", "&#128690;"] %}
-                {% set category_icons = {"Textbooks": "&#128218;", "Electronics": "&#128187;", "Furniture": "&#129681;", "Monitors": "&#128187;", "Other": "&#128230;"} %}
+                {% set emojis = ["📚", "💻", "🪑", "📱", "🎸", "🚲"] %}
+                {% set category_icons = {"Textbooks": "📚", "Electronics": "💻", "Furniture": "🪑", "Monitors": "💻", "Other": "📦"} %}
                 {% set emoji = category_icons.get(lcategory, emojis[loop.index0 % emojis | length]) %}
                 {% set condition_colors = {"New": "bg-green-100 text-green-800", "Like New": "bg-green-100 text-green-800", "Good": "bg-yellow-100 text-yellow-800", "Fair": "bg-gray-100 text-gray-800", "Poor": "bg-red-100 text-red-800"} %}
                 {% set condition_class = condition_colors.get(lcondition, "bg-gray-100 text-gray-800") %}
@@ -139,7 +139,7 @@
                             {% if purchase.listing_image %}
                             <img src="{{ purchase.listing_image | e }}" class="w-full h-full object-cover" loading="lazy" />
                             {% else %}
-                            <span class="text-2xl">&#128230;</span>
+                            <span class="text-2xl">📦</span>
                             {% endif %}
                         </div>
                         <div class="flex-1">
