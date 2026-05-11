@@ -5,6 +5,7 @@ import httpx
 from httpx import Limits
 from supabase import create_client, Client
 from typing import Optional
+from urllib.parse import quote
 from lib.cache import cache_get, cache_set, cache_delete, cache_clear
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -29,6 +30,17 @@ _ANON_HEADERS = {
     "Content-Type": "application/json",
     "Prefer": "return=representation"
 }
+
+
+def _encode_filter_value(value: str) -> str:
+    """URL-encode the value portion of a PostgREST filter while preserving the operator prefix."""
+    if not isinstance(value, str):
+        value = str(value)
+    for prefix in ("eq.", "neq.", "gt.", "gte.", "lt.", "lte.", "in.", "ilike.", "like.", "is.", "cs.", "cd.", "ov.", "sl.", "sr.", "nxl.", "nxr.", "adj.", "match.", "imatch."):
+        if value.startswith(prefix):
+            return prefix + quote(value[len(prefix):], safe="")
+    # No operator prefix found, default to eq.
+    return "eq." + quote(value, safe="")
 
 
 def get_http_client() -> httpx.Client:
@@ -134,13 +146,10 @@ async def rest_select_async(table: str, filters: dict = None, order: str = None,
     params = [f"select={columns}"]
     if filters:
         for key, value in filters.items():
-            if isinstance(value, str) and value.startswith(("eq.", "neq.", "gt.", "gte.", "lt.", "lte.", "in.")):
-                params.append(f"{key}={value}")
-            else:
-                params.append(f"{key}=eq.{value}")
+            params.append(f"{key}={_encode_filter_value(value)}")
     if like_filters:
         for key, value in like_filters.items():
-            params.append(f"{key}=ilike.*{value}*")
+            params.append(f"{key}=ilike.*{quote(str(value), safe='')}*")
     if order:
         params.append(f"order={order}")
     if limit:
@@ -167,13 +176,10 @@ async def rest_select_auth_async(table: str, access_token: str, filters: dict = 
     params = [f"select={columns}"]
     if filters:
         for key, value in filters.items():
-            if isinstance(value, str) and value.startswith(("eq.", "neq.", "gt.", "gte.", "lt.", "lte.", "in.")):
-                params.append(f"{key}={value}")
-            else:
-                params.append(f"{key}=eq.{value}")
+            params.append(f"{key}={_encode_filter_value(value)}")
     if like_filters:
         for key, value in like_filters.items():
-            params.append(f"{key}=ilike.*{value}*")
+            params.append(f"{key}=ilike.*{quote(str(value), safe='')}*")
     if order:
         params.append(f"order={order}")
     if limit:
@@ -229,10 +235,7 @@ async def rest_insert_auth_async(table: str, access_token: str, data: dict) -> d
 async def rest_update_async(table: str, data: dict, filters: dict) -> dict:
     filter_parts = []
     for key, value in filters.items():
-        if isinstance(value, str) and value.startswith(("eq.", "neq.", "gt.", "gte.", "lt.", "lte.", "in.")):
-            filter_parts.append(f"{key}={value}")
-        else:
-            filter_parts.append(f"{key}=eq.{value}")
+        filter_parts.append(f"{key}={_encode_filter_value(value)}")
     filter_string = "&".join(filter_parts)
     url = f"{REST_URL}/{table}?{filter_string}"
 
@@ -252,10 +255,7 @@ async def rest_update_async(table: str, data: dict, filters: dict) -> dict:
 async def rest_update_auth_async(table: str, access_token: str, data: dict, filters: dict) -> dict:
     filter_parts = []
     for key, value in filters.items():
-        if isinstance(value, str) and value.startswith(("eq.", "neq.", "gt.", "gte.", "lt.", "lte.", "in.")):
-            filter_parts.append(f"{key}={value}")
-        else:
-            filter_parts.append(f"{key}=eq.{value}")
+        filter_parts.append(f"{key}={_encode_filter_value(value)}")
     filter_string = "&".join(filter_parts)
     url = f"{REST_URL}/{table}?{filter_string}"
 
@@ -275,7 +275,7 @@ async def rest_update_auth_async(table: str, access_token: str, data: dict, filt
 async def rest_delete_async(table: str, filters: dict) -> bool:
     filter_parts = []
     for key, value in filters.items():
-        filter_parts.append(f"{key}=eq.{value}")
+        filter_parts.append(f"{key}={_encode_filter_value(value)}")
     filter_string = "&".join(filter_parts)
     url = f"{REST_URL}/{table}?{filter_string}"
 
@@ -292,10 +292,7 @@ async def rest_count_async(table: str, filters: dict = None) -> int:
     params = ["select=count"]
     if filters:
         for key, value in filters.items():
-            if isinstance(value, str) and value.startswith(("eq.", "neq.", "gt.", "gte.", "lt.", "lte.")):
-                params.append(f"{key}={value}")
-            else:
-                params.append(f"{key}=eq.{value}")
+            params.append(f"{key}={_encode_filter_value(value)}")
 
     query_string = "&".join(params)
     url = f"{REST_URL}/{table}?{query_string}"

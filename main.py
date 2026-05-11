@@ -1057,6 +1057,34 @@ async def send_chat_message(
     return RedirectResponse(f"/messages?tab={active_tab}&chat={conversation_id}", status_code=303)
 
 
+@app.get("/api/messages/{conversation_id}/latest")
+async def get_latest_messages(request: Request, conversation_id: str, after: str = ""):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = user.get("id", "")
+    access_token = request.cookies.get("sb-access-token", "")
+
+    conversation = await get_conversation_by_id(conversation_id, access_token)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    buyer_id = conversation.get("buyer_id", "")
+    seller_id = conversation.get("seller_id", "")
+
+    if user_id != buyer_id and user_id != seller_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    filters = {"conversation_id": f"eq.{conversation_id}"}
+    if after:
+        filters["created_at"] = f"gt.{after}"
+
+    msgs = await rest_select_auth_async("messages", access_token, filters=filters, order="created_at.asc", columns="id,conversation_id,content,created_at,sender_id,read_at")
+
+    return {"messages": msgs}
+
+
 @app.post("/auth/logout")
 async def logout(request: Request):
     from lib.supabase import logout_via_rest_async

@@ -23,7 +23,7 @@
                 {% set is_mine = msg.sender_id == user_id %}
                 {% set msg_class = "ml-auto bg-emerald-100" if is_mine else "mr-auto bg-white" %}
                 {% set align = "justify-end" if is_mine else "justify-start" %}
-                <div class="flex {{ align }} mb-3">
+                <div class="flex {{ align }} mb-3 message-bubble" data-msg-id="{{ msg.id }}" data-created-at="{{ msg.created_at }}">
                     <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg {{ msg_class }} shadow-sm">
                         <p class="text-gray-800">{{ msg.content | e }}</p>
                         <p class="text-xs text-gray-400 mt-1 text-right">{{ msg.created_at[:16] if msg.created_at else "" }}</p>
@@ -43,4 +43,108 @@
         </form>
     </div>
 </div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function() {
+    const conversationId = "{{ conversation_id }}";
+    const userId = "{{ user_id }}";
+    const container = document.getElementById('chat-messages');
+    const form = document.querySelector('form[action^="/api/messages/"]');
+    const input = form ? form.querySelector('input[name="content"]') : null;
+    let pollInterval = null;
+
+    function getLastTimestamp() {
+        const bubbles = container.querySelectorAll('.message-bubble');
+        if (bubbles.length) {
+            const last = bubbles[bubbles.length - 1];
+            return last.dataset.createdAt || "";
+        }
+        return "";
+    }
+
+    function isNearBottom() {
+        return container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+    }
+
+    function scrollToBottom() {
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function createMessageBubble(msg) {
+        const isMine = msg.sender_id === userId;
+        const alignClass = isMine ? 'justify-end' : 'justify-start';
+        const msgClass = isMine ? 'ml-auto bg-emerald-100' : 'mr-auto bg-white';
+        const timeStr = msg.created_at ? msg.created_at.substring(0, 16) : '';
+        const div = document.createElement('div');
+        div.className = `flex ${alignClass} mb-3 message-bubble`;
+        div.dataset.msgId = msg.id;
+        div.dataset.createdAt = msg.created_at;
+        div.innerHTML = `
+            <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${msgClass} shadow-sm">
+                <p class="text-gray-800">${escapeHtml(msg.content)}</p>
+                <p class="text-xs text-gray-400 mt-1 text-right">${escapeHtml(timeStr)}</p>
+            </div>
+        `;
+        return div;
+    }
+
+    async function pollMessages() {
+        const ts = getLastTimestamp();
+        const url = ts
+            ? `/api/messages/${conversationId}/latest?after=${encodeURIComponent(ts)}`
+            : `/api/messages/${conversationId}/latest`;
+        try {
+            const res = await fetch(url);
+            if (!res.ok) return;
+            const data = await res.json();
+            const msgs = data.messages || [];
+            if (!msgs.length) return;
+            const shouldScroll = isNearBottom();
+            msgs.forEach(msg => {
+                if (container.querySelector(`[data-msg-id="${msg.id}"]`)) return;
+                container.appendChild(createMessageBubble(msg));
+            });
+            if (shouldScroll) scrollToBottom();
+        } catch (e) {
+            // silently fail
+        }
+    }
+
+    if (form && input) {
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const content = input.value.trim();
+            if (!content) return;
+            const formData = new FormData(form);
+            try {
+                const res = await fetch(form.action, {
+                    method: 'POST',
+                    body: formData
+                });
+                if (res.ok || res.redirected) {
+                    input.value = '';
+                    await pollMessages();
+                    scrollToBottom();
+                } else {
+                    showToast('Failed to send message', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to send message', 'error');
+            }
+        });
+    }
+
+    if (container) {
+        scrollToBottom();
+        pollInterval = setInterval(pollMessages, 3000);
+    }
+})();
+</script>
 {% endblock %}
