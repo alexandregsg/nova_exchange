@@ -311,6 +311,7 @@ async def listing_detail(request: Request, listing_id: str):
     edit_button = ""
     contact_button = ""
     show_number_button = ""
+    mark_sold_button = ""
 
     # Show number button for both seller and buyer when phone is public
     if listing.get('seller_show_phone'):
@@ -323,6 +324,8 @@ async def listing_detail(request: Request, listing_id: str):
 
     if is_seller:
         edit_button = f'<a href="/listings/{listing_id}/edit" class="mt-4 inline-block w-full bg-gray-600 text-white px-6 py-3 rounded-lg text-center hover:bg-gray-700">Edit Listing</a>'
+        if not is_sold:
+            mark_sold_button = f'<button type="button" onclick="openMarkSoldModal()" class="mt-3 inline-block w-full bg-emerald-600 text-white px-6 py-3 rounded-lg text-center hover:bg-emerald-700 font-medium">Mark as Sold</button>'
     else:
         contact_button = f'<a href="/messages/new?listing_id={listing_id}" class="mt-4 inline-block w-full bg-emerald-600 text-white px-6 py-3 rounded-lg text-center hover:bg-emerald-700">Contact Seller</a>'
 
@@ -352,6 +355,7 @@ async def listing_detail(request: Request, listing_id: str):
         "edit_button": edit_button,
         "contact_button": contact_button,
         "show_number_button": show_number_button,
+        "mark_sold_button": mark_sold_button,
         "now_year": datetime.now().year,
     })
 
